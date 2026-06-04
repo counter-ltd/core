@@ -8,16 +8,23 @@
  * On success it stores the session in cookies and sends the user to their feed.
  * Failures come back as `fail()` so the form can re-render with the error and
  * keep what the user typed.
+ *
+ * We don't redirect already-signed-in visitors: they may be here to add a
+ * second account. The `?add=1` param is what the Nav links to in that case,
+ * but the form works even if someone lands here directly while signed in.
  */
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { apiFetch } from '$lib/server/api';
-import { setSessionCookies } from '$lib/server/session';
+import { setActiveAccount } from '$lib/server/session';
 import type { AuthResponse } from '@counter/types';
 
-export const load: PageServerLoad = ({ locals }) => {
-  // Already signed in? There's nothing to log into; send them to the feed.
-  if (locals.user) throw redirect(303, '/feed');
+export const load: PageServerLoad = ({ locals, url }) => {
+  // Only redirect when the visitor is already signed in and isn't deliberately
+  // adding another account. This keeps "go to /login" as a shortcut to the
+  // feed for users who have a session, while still letting them arrive here
+  // explicitly to sign in as someone else.
+  if (locals.user && !url.searchParams.has('add')) throw redirect(303, '/feed');
 };
 
 export const actions: Actions = {
@@ -44,9 +51,10 @@ export const actions: Actions = {
       return fail(res.status, { identifier, error: res.error?.message ?? 'Login failed.' });
     }
 
-    // Persist the tokens as cookies before redirecting; the next request reads
-    // them back to recognise the now-authenticated user.
-    setSessionCookies(cookies, res.data);
+    // Add the account to the list (or move it to the front if already there)
+    // and set the new access cookie. On first login this is identical to the
+    // old single-account behaviour.
+    setActiveAccount(cookies, res.data, res.data.user);
     throw redirect(303, '/feed');
   },
 };

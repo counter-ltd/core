@@ -40,10 +40,49 @@
   } = $props();
 
   const permalink = $derived(`/${post.author.username}/post/${post.id}`);
-  // viewer is absent for logged-out readers, so default these to false rather
-  // than letting undefined drive the button state.
-  const liked = $derived(post.viewer?.liked ?? false);
-  const reposted = $derived(post.viewer?.reposted ?? false);
+
+  // $state instead of $derived so we can update these without triggering a
+  // page reload. Cards are keyed by post.id so each instance starts fresh.
+  // Server truth comes back on the next full navigation.
+  let liked = $state(post.viewer?.liked ?? false);
+  let reposted = $state(post.viewer?.reposted ?? false);
+  let likeCount = $state(post.counts.likes);
+  let repostCount = $state(post.counts.reposts);
+
+  async function interact(kind: string) {
+    await fetch('/actions/interact', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ kind, postId: post.id, redirectTo }),
+    });
+  }
+
+  // Toggle like with an optimistic flip. Reverts on network error.
+  async function toggleLike(event: Event) {
+    event.preventDefault();
+    const was = liked;
+    liked = !was;
+    likeCount += was ? -1 : 1;
+    try {
+      await interact(was ? 'unlike' : 'like');
+    } catch {
+      liked = was;
+      likeCount += was ? 1 : -1;
+    }
+  }
+
+  async function toggleRepost(event: Event) {
+    event.preventDefault();
+    const was = reposted;
+    reposted = !was;
+    repostCount += was ? -1 : 1;
+    try {
+      await interact(was ? 'unrepost' : 'repost');
+    } catch {
+      reposted = was;
+      repostCount += was ? 1 : -1;
+    }
+  }
 </script>
 
 <article class="post panel" class:nested>
@@ -77,7 +116,8 @@
   {#if post.media.length}
     <div class="media">
       {#each post.media as m (m.id)}
-        <img src={m.url} alt={m.altText ?? ''} loading="lazy" />
+        <img src={m.url} alt={m.altText ?? ''} loading="lazy"
+          width={m.width ?? undefined} height={m.height ?? undefined} />
       {/each}
     </div>
   {/if}
@@ -102,16 +142,16 @@
           <input type="hidden" name="kind" value={reposted ? 'unrepost' : 'repost'} />
           <input type="hidden" name="postId" value={post.id} />
           <input type="hidden" name="redirectTo" value={redirectTo} />
-          <button class="act" class:on={reposted} title="Repost">
-            <span class="ico">⇅</span>{compact(post.counts.reposts)}
+          <button class="act" class:on={reposted} title="Repost" onclick={toggleRepost}>
+            <span class="ico">⇅</span>{compact(repostCount)}
           </button>
         </form>
         <form method="POST" action="/actions/interact" class="act-form">
           <input type="hidden" name="kind" value={liked ? 'unlike' : 'like'} />
           <input type="hidden" name="postId" value={post.id} />
           <input type="hidden" name="redirectTo" value={redirectTo} />
-          <button class="act like" class:on={liked} title="Like">
-            <span class="ico">{liked ? '♥' : '♡'}</span>{compact(post.counts.likes)}
+          <button class="act like" class:on={liked} title="Like" onclick={toggleLike}>
+            <span class="ico">{liked ? '♥' : '♡'}</span>{compact(likeCount)}
           </button>
         </form>
       {:else}

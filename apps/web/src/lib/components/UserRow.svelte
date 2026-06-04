@@ -23,10 +23,29 @@
     redirectTo = '/',
   }: { user: PublicUser; currentUser?: PrivateUser | null; redirectTo?: string } = $props();
 
-  // viewer is missing for logged-out readers, so default to false. isSelf lets
-  // us hide the follow button on your own row.
-  const isFollowing = $derived(user.viewer?.isFollowing ?? false);
+  // isSelf is stable for a given row; isFollowing is local state so the button
+  // flips instantly without reloading the page.
   const isSelf = $derived(user.viewer?.isSelf ?? false);
+  let isFollowing = $state(user.viewer?.isFollowing ?? false);
+
+  async function toggleFollow(event: Event) {
+    event.preventDefault();
+    const was = isFollowing;
+    isFollowing = !was;
+    try {
+      await fetch('/actions/interact', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          kind: was ? 'unfollow' : 'follow',
+          username: user.username,
+          redirectTo,
+        }),
+      });
+    } catch {
+      isFollowing = was;
+    }
+  }
 </script>
 
 <div class="urow panel">
@@ -42,7 +61,7 @@
       <input type="hidden" name="kind" value={isFollowing ? 'unfollow' : 'follow'} />
       <input type="hidden" name="username" value={user.username} />
       <input type="hidden" name="redirectTo" value={redirectTo} />
-      <button class="btn {isFollowing ? '' : 'btn-primary'}">{isFollowing ? 'Following' : 'Follow'}</button>
+      <button class="btn {isFollowing ? '' : 'btn-primary'}" onclick={toggleFollow}>{isFollowing ? 'Following' : 'Follow'}</button>
     </form>
   {/if}
 </div>

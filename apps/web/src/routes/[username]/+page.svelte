@@ -19,9 +19,37 @@
   // `viewer` is only populated when someone's logged in, so default both flags
   // to false for anonymous visitors rather than letting them read as undefined.
   const isSelf = $derived(p.viewer?.isSelf ?? false);
-  const isFollowing = $derived(p.viewer?.isFollowing ?? false);
+  // Local state so the follow button flips instantly. Synced when navigating
+  // between different profiles (p changes), but not invalidated mid-session.
+  let isFollowing = $state(p.viewer?.isFollowing ?? false);
+  let followerCount = $state(p.counts.followers);
+  $effect(() => {
+    isFollowing = p.viewer?.isFollowing ?? false;
+    followerCount = p.counts.followers;
+  });
   // Where follow/unfollow and pagination links point back to: this profile.
   const here = $derived(`/${p.username}`);
+
+  async function toggleFollow(event: Event) {
+    event.preventDefault();
+    const was = isFollowing;
+    isFollowing = !was;
+    followerCount += was ? -1 : 1;
+    try {
+      await fetch('/actions/interact', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          kind: was ? 'unfollow' : 'follow',
+          username: p.username,
+          redirectTo: here,
+        }),
+      });
+    } catch {
+      isFollowing = was;
+      followerCount += was ? 1 : -1;
+    }
+  }
 </script>
 
 <svelte:head><title>{p.displayName || p.username} · Counter</title></svelte:head>
@@ -41,7 +69,7 @@
           <input type="hidden" name="kind" value={isFollowing ? 'unfollow' : 'follow'} />
           <input type="hidden" name="username" value={p.username} />
           <input type="hidden" name="redirectTo" value={here} />
-          <button class="btn {isFollowing ? '' : 'btn-primary'}">{isFollowing ? 'Following' : 'Follow'}</button>
+          <button class="btn {isFollowing ? '' : 'btn-primary'}" onclick={toggleFollow}>{isFollowing ? 'Following' : 'Follow'}</button>
         </form>
       {:else}
         <a class="btn btn-primary" href="/login">Follow</a>
@@ -77,7 +105,7 @@
   <div class="counts">
     <span><strong>{compact(p.counts.posts)}</strong> posts</span>
     <a href="/{p.username}/following"><strong>{compact(p.counts.following)}</strong> following</a>
-    <a href="/{p.username}/followers"><strong>{compact(p.counts.followers)}</strong> followers</a>
+    <a href="/{p.username}/followers"><strong>{compact(followerCount)}</strong> followers</a>
   </div>
 </header>
 

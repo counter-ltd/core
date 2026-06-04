@@ -12,7 +12,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { apiFetch } from '$lib/server/api';
-import { clearSessionCookies } from '$lib/server/session';
+import { removeAccount } from '$lib/server/session';
 import type { PrivateUser, Integration } from '@counter/types';
 
 export const load: PageServerLoad = async ({ locals, fetch }) => {
@@ -104,11 +104,10 @@ export const actions: Actions = {
       return fail(400, { error: 'Type DELETE to confirm account deletion.' });
     }
     await apiFetch('/auth/account', { method: 'DELETE', token: locals.accessToken });
-    // The account is gone, so clear the now-dead session cookies before sending
-    // them on. We land on /login with ?deleted so the user gets the written
-    // confirmation of deletion the license (Condition 6) requires, not a silent
-    // bounce to the feed.
-    clearSessionCookies(cookies);
+    // Remove this account from the list; if another account is stored it
+    // becomes active. We still land on /login?deleted for the written
+    // confirmation the license (Condition 6) requires.
+    removeAccount(cookies, locals.user!.id);
     throw redirect(303, '/login?deleted=1');
   },
 };

@@ -5,14 +5,12 @@
 /**
  * Root layout load, run for every page.
  *
- * Its one job is to surface the signed-in user (resolved upstream in hooks and
- * stashed on `locals`) so every layout and page can read it without each one
- * having to re-fetch the session.
+ * Surfaces the signed-in user and the full account list (minus refresh tokens)
+ * so the Nav can render the account switcher without each page needing to
+ * fetch either separately.
  */
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = ({ locals }) => {
-  // `locals.user` is null for logged-out visitors, which is exactly what the
-  // UI keys off to decide between signed-in and signed-out chrome.
-  return { user: locals.user };
+  return { user: locals.user, accounts: locals.accounts };
 };

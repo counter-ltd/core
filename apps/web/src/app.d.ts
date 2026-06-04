@@ -19,9 +19,25 @@ declare global {
       user: PrivateUser | null;
       /** Current access token, possibly refreshed during the request. */
       accessToken: string | null;
+      /**
+       * All stored accounts without their refresh tokens — safe to pass to the
+       * browser via the root layout. First entry matches `user` when signed in.
+       */
+      accounts: Array<{
+        userId: string;
+        username: string;
+        displayName: string | null;
+        avatarUrl: string | null;
+      }>;
     }
     interface PageData {
       user?: PrivateUser | null;
+      accounts?: Array<{
+        userId: string;
+        username: string;
+        displayName: string | null;
+        avatarUrl: string | null;
+      }>;
     }
     // interface Error {}
     // interface Platform {}

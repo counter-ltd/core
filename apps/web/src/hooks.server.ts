@@ -16,8 +16,10 @@ import type { PrivateUser, TokenPair } from '@counter/types';
 import { apiFetch } from '$lib/server/api';
 import {
   readTokens,
-  setSessionCookies,
-  clearSessionCookies,
+  updateActiveTokens,
+  removeAccount,
+  getActiveAccount,
+  getStoredAccounts,
 } from '$lib/server/session';
 
 // Methods that can't mutate state, so they're exempt from the CSRF check.
@@ -62,12 +64,16 @@ function checkCsrf(event: Parameters<Handle>[0]['event']): Response | null {
  * we rotate to a fresh pair and re-write the cookies inline, so a logged-in
  * user never gets a spurious logout just because their short-lived access
  * token aged out.
+ *
+ * Also populates `event.locals.accounts` with the safe (no refresh token)
+ * projection of every stored account, so the Nav can render the switcher.
  */
 export const handle: Handle = async ({ event, resolve }) => {
   const csrfError = checkCsrf(event);
   if (csrfError) return csrfError;
   event.locals.user = null;
   event.locals.accessToken = null;
+  event.locals.accounts = [];
 
   const { accessToken, refreshToken } = readTokens(event.cookies);
 
@@ -88,24 +94,31 @@ export const handle: Handle = async ({ event, resolve }) => {
   // user (absent, expired, or rejected). Refreshing is a network round trip,
   // so we skip it on the happy path.
   if (!event.locals.user && refreshToken) {
+    const active = getActiveAccount(event.cookies);
     const refreshed = await apiFetch<TokenPair>('/auth/refresh', {
       method: 'POST',
       body: { refreshToken },
       fetch: event.fetch,
     });
     if (refreshed.ok) {
-      setSessionCookies(event.cookies, refreshed.data);
+      updateActiveTokens(event.cookies, refreshed.data);
       const user = await loadMe(refreshed.data.accessToken);
       if (user) {
         event.locals.user = user;
         event.locals.accessToken = refreshed.data.accessToken;
       }
-    } else {
-      // The refresh token itself is dead, so the cookies are worthless. Clear
-      // them now to stop every later request retrying the same doomed refresh.
-      clearSessionCookies(event.cookies);
+    } else if (active) {
+      // The refresh token is dead, so remove this account to stop every later
+      // request retrying the same doomed refresh.
+      removeAccount(event.cookies, active.userId);
     }
   }
+
+  // Expose the account list (minus refresh tokens) to the layout so the Nav
+  // can render the account switcher.
+  event.locals.accounts = getStoredAccounts(event.cookies).map(
+    ({ userId, username, displayName, avatarUrl }) => ({ userId, username, displayName, avatarUrl }),
+  );
 
   return resolve(event);
 };

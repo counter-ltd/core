@@ -37,7 +37,7 @@
 
 <div class="shell">
   <aside class="side">
-    <Nav user={data.user} />
+    <Nav user={data.user} accounts={data.accounts ?? []} />
   </aside>
   <main class="main">
     {@render children()}

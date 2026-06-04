@@ -10,15 +10,21 @@
    * collapses into a hamburger drawer (see the media query in the styles).
    *
    * Props:
-   *   user  The signed-in user, or null when logged out. Drives which links
-   *         show and whether the footer offers the account block or the
-   *         log in / sign up buttons.
+   *   user      The signed-in user, or null when logged out.
+   *   accounts  Every stored account (no refresh tokens). First entry matches
+   *             `user`. Drives the account switcher in the footer.
    */
   import { page } from '$app/state';
   import type { PrivateUser } from '@counter/types';
   import Avatar from './Avatar.svelte';
 
-  let { user }: { user: PrivateUser | null } = $props();
+  let {
+    user,
+    accounts = [],
+  }: {
+    user: PrivateUser | null;
+    accounts: Array<{ userId: string; username: string; displayName: string | null; avatarUrl: string | null }>;
+  } = $props();
 
   // The nav doubles as the site map, so each link's label is literally its
   // path. `auth: true` means the link only shows to signed-in users.
@@ -44,13 +50,17 @@
 
   // Whether the mobile drawer is showing.
   let open = $state(false);
+  // Whether the account switcher tray is open.
+  let accountsOpen = $state(false);
 
-  // Close the drawer whenever the route changes, so tapping a link doesn't
-  // leave it hanging open over the page you just navigated to. Reading
-  // `current` is what subscribes this effect to navigation.
+  // Other accounts stored locally (everyone except the active one).
+  const otherAccounts = $derived(user ? accounts.filter((a) => a.userId !== user.id) : []);
+
+  // Close both the nav drawer and the account tray on navigation.
   $effect(() => {
     current;
     open = false;
+    accountsOpen = false;
   });
 </script>
 
@@ -77,7 +87,37 @@
             <strong>{user.displayName || user.username}</strong>
             <small class="faint">@{user.username}</small>
           </a>
+          <!-- Toggle button always visible so the user can add accounts even
+               when they only have one. -->
+          <button
+            class="me-expand"
+            class:active={accountsOpen}
+            onclick={() => (accountsOpen = !accountsOpen)}
+            aria-label="Switch accounts"
+            aria-expanded={accountsOpen}
+          >
+            <span class="chevron" aria-hidden="true">▾</span>
+          </button>
         </div>
+
+        {#if accountsOpen}
+          <div class="account-tray">
+            {#each otherAccounts as acc (acc.userId)}
+              <form method="POST" action="/actions/switch-account">
+                <input type="hidden" name="userId" value={acc.userId} />
+                <button type="submit" class="account-row">
+                  <Avatar user={acc} size={26} />
+                  <div class="acc-who">
+                    <strong>{acc.displayName || acc.username}</strong>
+                    <small>@{acc.username}</small>
+                  </div>
+                </button>
+              </form>
+            {/each}
+            <a href="/login?add=1" class="account-add">+ add account</a>
+          </div>
+        {/if}
+
         <div class="me-actions">
           <a class="btn" href="/settings">settings</a>
           <form method="POST" action="/actions/logout">
@@ -175,6 +215,88 @@
   .who small {
     font-family: var(--mono);
     font-size: 0.74rem;
+  }
+  .me-expand {
+    margin-left: auto;
+    flex-shrink: 0;
+    background: none;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 2px 6px;
+    color: var(--color-text-dim);
+    line-height: 1;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .me-expand:hover,
+  .me-expand.active {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+  .chevron {
+    display: inline-block;
+    font-size: 0.7rem;
+    transition: transform 0.15s;
+  }
+  .me-expand.active .chevron {
+    transform: rotate(180deg);
+  }
+  /* The tray sits between the .me row and .me-actions. */
+  .account-tray {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2) 0;
+    border-top: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .account-tray form {
+    margin: 0;
+  }
+  .account-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    padding: var(--space-2) var(--space-2);
+    color: var(--color-text);
+    text-align: left;
+    transition: background 0.12s;
+  }
+  .account-row:hover {
+    background: var(--color-surface-strong);
+  }
+  .acc-who {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+    min-width: 0;
+  }
+  .acc-who strong {
+    font-size: 0.85rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .acc-who small {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--color-text-dim);
+  }
+  .account-add {
+    padding: var(--space-2) var(--space-2);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--color-text-dim);
+    border-radius: var(--radius-sm);
+  }
+  .account-add:hover {
+    color: var(--color-accent);
   }
   .me-actions {
     display: flex;

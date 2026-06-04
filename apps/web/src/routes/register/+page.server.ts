@@ -5,18 +5,19 @@
 /**
  * The sign-up page: shows the form and handles account creation.
  *
- * Mirrors login. On success it logs the new user straight in (sets session
- * cookies) and drops them on the feed, no separate login step.
+ * Mirrors login. On success it logs the new user straight in (adds the account
+ * to the session list) and drops them on the feed, no separate login step.
+ * Like login, it doesn't redirect signed-in visitors so they can create a
+ * second account while already signed in.
  */
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { apiFetch } from '$lib/server/api';
-import { setSessionCookies } from '$lib/server/session';
+import { setActiveAccount } from '$lib/server/session';
 import type { AuthResponse } from '@counter/types';
 
-export const load: PageServerLoad = ({ locals }) => {
-  // An already-signed-in user has no business on the register page.
-  if (locals.user) throw redirect(303, '/feed');
+export const load: PageServerLoad = ({ locals, url }) => {
+  if (locals.user && !url.searchParams.has('add')) throw redirect(303, '/feed');
 };
 
 export const actions: Actions = {
@@ -50,9 +51,9 @@ export const actions: Actions = {
       return fail(res.status, { ...values, error: res.error?.message ?? 'Could not create account.' });
     }
 
-    // Register returns a full session, so seat the cookies and go, treating the
-    // new account as logged in immediately.
-    setSessionCookies(cookies, res.data);
+    // Register returns a full session — add the new account to the list and
+    // make it active immediately.
+    setActiveAccount(cookies, res.data, res.data.user);
     throw redirect(303, '/feed');
   },
 };
