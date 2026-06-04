@@ -12,7 +12,7 @@
     "port": 3000
   },
   "vars": {
-    "PUBLIC_API_URL": "http://localhost:3000",
+    "PUBLIC_API_URL": "https://api.counter.ltd",
     "JWT_EXPIRES_IN": "15m",
     "JWT_REFRESH_EXPIRES_IN": "30d"
   },
@@ -20,7 +20,7 @@
     {
       "binding": "HYPERDRIVE",
       // Replace with your real Hyperdrive id (`wrangler hyperdrive create`).
-      "id": "REPLACE_WITH_HYPERDRIVE_ID",
+      "id": "13e282c4634e424f97f5d1b7608223de",
       // Used only by `wrangler dev` — points at your local/remote Postgres.
       // workerd requires a password segment even when the DB uses trust auth
       // (the value is ignored by a trust-auth server).
