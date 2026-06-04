@@ -52,9 +52,10 @@ export const actions: Actions = {
 
   resendVerification: async ({ locals }) => {
     if (!locals.accessToken) throw redirect(303, '/login');
-    // The API always answers ok (it quietly skips if already verified or if mail
-    // isn't configured), so there's nothing to branch on; just flash "sent".
-    await apiFetch('/auth/verify/request', { method: 'POST', token: locals.accessToken });
+    // A 429 here is the once-an-hour rate limit; surface its message so the user
+    // knows to wait rather than re-clicking. Any other failure shows generically.
+    const res = await apiFetch('/auth/verify/request', { method: 'POST', token: locals.accessToken });
+    if (!res.ok) return fail(res.status, { resendError: res.error?.message ?? 'Could not send right now.' });
     return { resent: true };
   },
 

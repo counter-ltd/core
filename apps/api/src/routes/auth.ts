@@ -30,7 +30,11 @@ import {
   rotateTokens,
   revokeByRefreshToken,
 } from '../lib/auth.ts';
-import { issueEmailVerification, consumeEmailVerification } from '../lib/verify.ts';
+import {
+  issueEmailVerification,
+  consumeEmailVerification,
+  verificationCooldownRemaining,
+} from '../lib/verify.ts';
 import { sendVerificationEmail, sendDeletionConfirmation } from '../lib/email.ts';
 import { requireAuth, requireUserId } from '../middleware/auth.ts';
 import { getPrivateUser, findUserByIdentifier } from '../services/userquery.ts';
@@ -40,27 +44,34 @@ import type { Context } from 'hono';
 export const authRoutes = new Hono<AppEnv>();
 
 /**
- * Issue a verification token and email the link, out of band.
+ * Issue a verification token and email the link.
  *
  * Guarded on the EMAIL binding so local dev (and any deploy that hasn't onboarded
  * the sending domain) simply skips it; the account is fully usable unverified.
- * Runs under waitUntil and swallows errors so a mail problem never blocks the
- * register/resend response that triggered it.
+ *
+ * The token is written synchronously (awaited) so its row anchors the resend
+ * rate limit before we respond, which closes the double-click race. Only the
+ * actual send is deferred under waitUntil and best-effort, so a mail problem
+ * never blocks the register/resend response that triggered it.
  */
-function fireVerificationEmail(
+async function fireVerificationEmail(
   c: Context<AppEnv>,
   user: { id: string; email: string; displayName: string | null; username: string },
-): void {
+): Promise<void> {
   if (!c.env.EMAIL) return;
   const email = c.env.EMAIL;
   const webUrl = c.env.PUBLIC_WEB_URL ?? 'https://counter.ltd';
   const name = user.displayName || user.username;
+  let token: string;
+  try {
+    token = await issueEmailVerification(user.id);
+  } catch {
+    return; // Couldn't record the token; skip the send rather than orphan a link.
+  }
   c.executionCtx.waitUntil(
-    issueEmailVerification(user.id)
-      .then((token) => sendVerificationEmail(email, user.email, name, `${webUrl}/verify?token=${token}`))
-      .catch(() => {
-        // Best effort: the user can always resend from settings.
-      }),
+    sendVerificationEmail(email, user.email, name, `${webUrl}/verify?token=${token}`).catch(() => {
+      // Best effort: the user can always resend from settings.
+    }),
   );
 }
 
@@ -96,9 +107,9 @@ authRoutes.post('/register', async (c) => {
   if (!created) throw errors.internal('Failed to create account');
 
   // Send the "verify your email" link on the way out. It's optional and earns
-  // only the ✦ badge, so it never blocks signup; fireVerificationEmail runs it
-  // out of band and skips cleanly when no mail binding is configured.
-  fireVerificationEmail(c, created);
+  // only the ✦ badge, so it never blocks signup; the send itself is deferred and
+  // skips cleanly when no mail binding is configured.
+  await fireVerificationEmail(c, created);
 
   const tokens = await issueTokens(created.id);
   const user = await getPrivateUser(created.id);
@@ -136,13 +147,24 @@ authRoutes.post('/verify', async (c) => {
   return c.json({ ok: true });
 });
 
-// Resend the verification email to the signed-in user. No-op response whether or
-// not mail is configured, so the client always gets the same "check your inbox"
-// regardless of deployment. Skips the work if they're already verified.
+// Resend the verification email to the signed-in user. Two guards: already
+// verified is a quiet no-op (nothing to do), and a rate limit of one email per
+// hour per account, so the resend button can't be used to flood an inbox or run
+// up the mail bill. Going over returns 429 with how long to wait.
 authRoutes.post('/verify/request', requireAuth, async (c) => {
   const userId = requireUserId(c);
   const row = await db.query.users.findFirst({ where: eq(users.id, userId) });
-  if (row && !row.verified) fireVerificationEmail(c, row);
+  if (!row || row.verified) return c.json({ ok: true });
+
+  const wait = await verificationCooldownRemaining(userId);
+  if (wait > 0) {
+    const mins = Math.ceil(wait / 60_000);
+    throw errors.rateLimited(
+      `You already requested one recently. Try again in about ${mins} minute${mins === 1 ? '' : 's'}.`,
+    );
+  }
+
+  await fireVerificationEmail(c, row);
   return c.json({ ok: true });
 });
 

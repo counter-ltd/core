@@ -123,6 +123,7 @@
       just signals to others that you're a real person.
     </p>
     {#if form?.resent}<p class="ok">Sent. Check your inbox for the link.</p>{/if}
+    {#if form?.resendError}<p class="error">{form.resendError}</p>{/if}
     <form method="POST" action="?/resendVerification" use:enhance>
       <button class="btn" type="submit">Send verification email</button>
     </form>

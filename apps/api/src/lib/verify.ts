@@ -18,6 +18,30 @@ import { sha256Hex } from './crypto.ts';
 // enough that a leaked-but-stale token is useless.
 const TTL_MS = 24 * 60 * 60 * 1000;
 
+// One verification email per hour per account. Anchored in the DB (the latest
+// token's createdAt), not in isolate memory, so it holds exactly across Workers
+// isolates, where an in-memory counter wouldn't, and it's email we're spending.
+const RESEND_COOLDOWN_MS = 60 * 60 * 1000;
+
+/**
+ * How long until this user may be sent another verification email.
+ *
+ * Reads the most recent token's age (issuing replaces the prior token, so that's
+ * the last-send time). Returns 0 when there's no recent send and a fresh email
+ * is allowed now.
+ *
+ * @param userId  Who's asking for a (re)send.
+ * @returns       Milliseconds to wait, or 0 if allowed immediately.
+ */
+export async function verificationCooldownRemaining(userId: string): Promise<number> {
+  const recent = await db.query.emailVerifications.findFirst({
+    where: eq(emailVerifications.userId, userId),
+    orderBy: (v, { desc }) => desc(v.createdAt),
+  });
+  if (!recent) return 0;
+  return Math.max(0, RESEND_COOLDOWN_MS - (Date.now() - recent.createdAt.getTime()));
+}
+
 /** A 256-bit random token as lowercase hex, safe to put in a URL. */
 function randomToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
