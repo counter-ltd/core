@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
   import type { ActionData } from './$types';
   let { form }: { form: ActionData } = $props();
 </script>
@@ -14,7 +15,7 @@
     <p class="error">{form.error}</p>
   {/if}
 
-  <form method="POST">
+  <form method="POST" use:enhance>
     <label class="field">
       <span class="label">Slug <span class="faint">(URL identifier, e.g. photography)</span></span>
       <input
