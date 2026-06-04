@@ -4,75 +4,21 @@
   Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
 -->
 <script lang="ts">
-  /**
-   * The topics directory: a list of every topic with member/post counts and a
-   * join button, plus an inline "create a topic" form that members can toggle
-   * open. `form` carries validation errors and the values to refill on a failed
-   * create.
-   */
   import { compact } from '$lib/format';
-  import type { ActionData } from './$types';
-
-  let { data, form }: { data: any; form: ActionData } = $props();
-
-  // Toggles the create-topic form. Starts hidden so the page leads with the list.
-  let showCreate = $state(false);
+  let { data } = $props();
 </script>
 
 <svelte:head><title>Topics · Counter</title></svelte:head>
 
 <div class="head">
-  <h1 class="title">Topics</h1>
-  <p class="muted sub">Find communities around your interests.</p>
+  <div class="head-text">
+    <h1 class="title">Topics</h1>
+    <p class="muted sub">Find communities around your interests.</p>
+  </div>
   {#if data.user}
-    <button class="btn btn-primary" onclick={() => (showCreate = !showCreate)}>
-      {showCreate ? 'Cancel' : 'New topic'}
-    </button>
+    <a class="btn btn-primary" href="/topics/new">New topic</a>
   {/if}
 </div>
-
-{#if showCreate}
-  <form method="POST" action="?/create" class="panel create-form">
-    <h2 class="form-title">Create a topic</h2>
-
-    {#if form?.error}
-      <p class="error">{form.error}</p>
-    {/if}
-
-    <label class="field">
-      <span class="label">Slug <span class="faint">(URL name, e.g. photography)</span></span>
-      <input
-        type="text"
-        name="slug"
-        required
-        minlength="2"
-        maxlength="50"
-        pattern="[a-z][a-z0-9_-]*"
-        placeholder="photography"
-        value={form?.slug ?? ''}
-      />
-    </label>
-
-    <label class="field">
-      <span class="label">Display name</span>
-      <input
-        type="text"
-        name="name"
-        required
-        maxlength="100"
-        placeholder="Photography"
-        value={form?.name ?? ''}
-      />
-    </label>
-
-    <label class="field">
-      <span class="label">Description <span class="faint">(optional)</span></span>
-      <textarea name="description" maxlength="500" placeholder="What's this topic about?">{form?.description ?? ''}</textarea>
-    </label>
-
-    <button class="btn btn-primary" type="submit">Create topic</button>
-  </form>
-{/if}
 
 {#if data.topics.length === 0}
   <p class="muted empty">No topics yet. Be the first to create one!</p>
@@ -116,34 +62,13 @@
 <style>
   .head {
     display: flex;
-    align-items: flex-start;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    margin-bottom: var(--space-4);
-  }
-  .title { margin: 0; flex: 1 1 100%; }
-  .sub { margin: 0; flex: 1 1 100%; }
-  .head .btn { margin-left: auto; }
-
-  .create-form {
-    padding: var(--space-5);
-    margin-bottom: var(--space-4);
-    display: flex;
-    flex-direction: column;
+    align-items: center;
     gap: var(--space-4);
+    margin-bottom: var(--space-4);
   }
-  .form-title { margin: 0; font-size: 1rem; }
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-  .label { font-size: 0.85rem; }
-  .error {
-    color: var(--color-error, #e53);
-    font-size: 0.88rem;
-    margin: 0;
-  }
+  .head-text { flex: 1; min-width: 0; }
+  .title { margin: 0; }
+  .sub { margin: 0; }
 
   .list { display: flex; flex-direction: column; gap: var(--space-3); }
   .topic-row {

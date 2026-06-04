@@ -28,7 +28,7 @@
 
 <!-- Only logged-in people can post; the redirect brings them back here after -->
 {#if data.user}
-  <Composer redirectTo="/" placeholder="Say something public…" />
+  <Composer redirectTo="/" placeholder="Say something public…" topics={data.topics} />
 {/if}
 
 <div class="stack feed">

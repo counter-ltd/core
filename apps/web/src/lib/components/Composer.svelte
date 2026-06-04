@@ -24,21 +24,32 @@
   let {
     parentId = null,
     topicId = null,
+    topics = null,
     redirectTo = '/feed',
     placeholder = "What's happening?",
     cta = 'Post',
-  }: { parentId?: string | null; topicId?: string | null; redirectTo?: string; placeholder?: string; cta?: string } =
-    $props();
+  }: {
+    parentId?: string | null;
+    topicId?: string | null;
+    /** When provided, shows a topic selector in the bar. */
+    topics?: Array<{ id: string; slug: string; name: string }> | null;
+    redirectTo?: string;
+    placeholder?: string;
+    cta?: string;
+  } = $props();
 
-  // Bound to the textarea so we can show the count and gate the button. The
-  // server is still the source of truth on length; this is just feedback.
   let value = $state('');
+  // Track selected topic separately so the hidden input reflects the select.
+  let selectedTopicId = $state(topicId ?? '');
 </script>
 
 <form method="POST" action="/actions/compose" class="composer panel">
-  <!-- Only emit these when set so the action doesn't see empty parent/topic. -->
   {#if parentId}<input type="hidden" name="parentId" value={parentId} />{/if}
-  {#if topicId}<input type="hidden" name="topicId" value={topicId} />{/if}
+  <!-- When a selector is shown the <select> provides the topicId value directly.
+       When the topic is pre-scoped (topic page), use a hidden input instead. -->
+  {#if !topics && topicId}
+    <input type="hidden" name="topicId" value={topicId} />
+  {/if}
   <input type="hidden" name="redirectTo" value={redirectTo} />
   <textarea
     name="body"
@@ -48,8 +59,26 @@
     required
   ></textarea>
   <div class="bar">
-    <span class="faint count">{value.length}/{POST.MAX_BODY_LENGTH}</span>
-    <button class="btn btn-primary" type="submit" disabled={value.trim().length === 0}>{cta}</button>
+    {#if topics && topics.length > 0}
+      <select
+        name="topicId"
+        class="topic-select"
+        bind:value={selectedTopicId}
+      >
+        <option value="">No topic</option>
+        {#each topics as t (t.id)}
+          <option value={t.id}>{t.name}</option>
+        {/each}
+      </select>
+    {:else}
+      <span class="faint count">{value.length}/{POST.MAX_BODY_LENGTH}</span>
+    {/if}
+    <div class="right">
+      {#if topics && topics.length > 0}
+        <span class="faint count">{value.length}/{POST.MAX_BODY_LENGTH}</span>
+      {/if}
+      <button class="btn btn-primary" type="submit" disabled={value.trim().length === 0}>{cta}</button>
+    </div>
   </div>
 </form>
 
@@ -70,9 +99,26 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: var(--space-3);
     margin-top: var(--space-3);
     border-top: 1px solid var(--color-border);
     padding-top: var(--space-3);
+  }
+  .right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-left: auto;
+  }
+  .topic-select {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    background: var(--color-surface-strong, var(--color-bg-2));
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    padding: 3px 6px;
+    color: var(--color-text);
+    max-width: 160px;
   }
   .count {
     font-size: 0.8rem;

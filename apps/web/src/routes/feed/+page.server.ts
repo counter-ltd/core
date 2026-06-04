@@ -3,27 +3,38 @@
 // Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
 
 /**
- * The signed-in home feed: the personalised, algorithm-ranked timeline.
+ * The signed-in following feed at /feed.
  *
- * This is the logged-in counterpart to the public landing feed. It hits the
- * authenticated `/posts` endpoint and is gated behind a login check.
+ * Unlike the public landing page, this is plain reverse-chronological — no
+ * ranking. Topics are fetched in parallel to power the Composer's topic
+ * selector, so posting into a topic doesn't require a separate round-trip.
  */
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { apiFetch } from '$lib/server/api';
-import type { Page, Post } from '@counter/types';
+import type { Page, Post, Topic } from '@counter/types';
 
 export const load: PageServerLoad = async ({ url, locals, fetch }) => {
-  // The personalised feed only makes sense for a known user; anonymous visitors
-  // belong on the public landing page, reached via login.
   if (!locals.user) throw redirect(303, '/login');
 
+  // Cursor-paginated: `?after=<cursor>` carries the previous page's nextCursor.
+  // Absent on the first load, so coerce the empty string to undefined.
   const after = url.searchParams.get('after') ?? undefined;
-  const res = await apiFetch<Page<Post>>('/posts', {
-    query: { after, limit: 20 },
-    token: locals.accessToken,
-    fetch,
-  });
-  // Empty-page fallback keeps the feed shell rendering if the call fails.
-  return { feed: res.ok ? res.data : { data: [], nextCursor: null } };
+  const [feedRes, topicsRes] = await Promise.all([
+    apiFetch<Page<Post>>('/posts', {
+      query: { after, limit: 20 },
+      token: locals.accessToken,
+      fetch,
+    }),
+    apiFetch<{ data: Topic[]; nextCursor: string | null }>('/topics', {
+      token: locals.accessToken,
+      fetch,
+    }),
+  ]);
+  // Fall back to empty rather than throwing so a flaky topics call doesn't
+  // take down the whole feed page.
+  return {
+    feed: feedRes.ok ? feedRes.data : { data: [], nextCursor: null },
+    topics: topicsRes.ok ? topicsRes.data.data : [],
+  };
 };

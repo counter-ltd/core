@@ -19,7 +19,7 @@
 <h1 class="title">Your feed</h1>
 <p class="muted sub">Posts from people you follow, newest first.</p>
 
-<Composer redirectTo="/feed" />
+<Composer redirectTo="/feed" topics={data.topics} />
 
 <div class="stack feed">
   {#each data.feed.data as post (post.id)}
