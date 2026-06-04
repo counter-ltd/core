@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "counter-web",
+  // Built by @sveltejs/adapter-cloudflare (`vite build`).
+  "main": ".svelte-kit/cloudflare/_worker.js",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".svelte-kit/cloudflare"
+  },
+  "vars": {
+    // Point this at your deployed API Worker URL in production.
+    "PUBLIC_API_URL": "http://localhost:3000"
+  }
+}

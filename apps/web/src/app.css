@@ -1,0 +1,248 @@
+/*
+ * Counter looks like the thing it is: a public datastore you can read.
+ * Flat surfaces, hairline rules, monospace for anything the machine owns
+ * (labels, counts, handles, timestamps), a humanist sans for what people write.
+ * One signal colour — amber — and that's it.
+ *
+ * Every value below is a custom property, because that's also the theming API:
+ * a theme is an override map of these, validated server-side, never executed.
+ * Dark is the default; light is paper.
+ */
+:root,
+[data-theme='dark'] {
+  --color-bg: #0c0c0d;
+  --color-bg-2: #161619;
+  --color-surface: #121214;
+  --color-surface-strong: #1c1c21;
+  --color-border: #2b2b31;
+  --color-border-bright: #45454d;
+  --color-text: #e8e8ea;
+  --color-text-dim: #97979e;
+  --color-text-faint: #64646b;
+  --color-accent: #e0a23c;
+  --color-accent-2: #6fae8f; /* second accent — themes use it; the base UI doesn't */
+  --color-accent-contrast: #0c0c0d;
+  --color-like: #e5577d;
+  --color-repost: #4fb98a;
+  --color-danger: #e5484d;
+
+  --radius-sm: 2px;
+  --radius: 3px;
+  --radius-lg: 5px;
+  --radius-pill: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 36px;
+
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, sans-serif;
+  --mono: 'Berkeley Mono', ui-monospace, 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Menlo,
+    Consolas, monospace;
+
+  --maxw: 620px;
+}
+
+[data-theme='light'] {
+  --color-bg: #f7f6f3;
+  --color-bg-2: #efece6;
+  --color-surface: #ffffff;
+  --color-surface-strong: #f1efe9;
+  --color-border: #dcd8cf;
+  --color-border-bright: #b6b1a4;
+  --color-text: #17160f;
+  --color-text-dim: #57544a;
+  --color-text-faint: #8a8678;
+  --color-accent: #aa6300;
+  --color-accent-contrast: #fffaf0;
+  --color-like: #c1325a;
+  --color-repost: #2f8f68;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+/* Headings are machine type: tight, monospace, set in the same family as the data. */
+h1,
+h2,
+h3 {
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 0 0 var(--space-3);
+  line-height: 1.2;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+a:hover {
+  color: var(--color-accent);
+}
+
+/* The one surface primitive: a flat panel held by a single hairline. No blur, no glow. */
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.btn {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-bright);
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn-primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+  font-weight: 600;
+}
+/* Primary hover flips to a white block — the loudest the UI ever gets. */
+.btn-primary:hover {
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: var(--color-bg);
+}
+.btn-ghost {
+  font-family: var(--mono);
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text-dim);
+  padding: var(--space-2);
+}
+.btn-ghost:hover {
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  color: var(--color-text);
+  background: var(--color-bg-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  transition: border-color 0.12s ease;
+}
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+textarea {
+  resize: vertical;
+  min-height: 90px;
+}
+
+/* Field labels read like column headers on a spec sheet. */
+label {
+  display: block;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.68rem;
+  color: var(--color-text-faint);
+  margin-bottom: var(--space-2);
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+}
+
+.muted {
+  color: var(--color-text-dim);
+}
+.faint {
+  color: var(--color-text-faint);
+}
+.error {
+  font-family: var(--mono);
+  color: var(--color-danger);
+  font-size: 0.82rem;
+}
+
+/* Tags: small uppercase chips, the kind you'd find next to a row of data. */
+.pill {
+  display: inline-block;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.66rem;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-strong);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-dim);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.spread {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: var(--space-4) 0;
+}

@@ -1,0 +1,28 @@
+{
+  "name": "counter",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '@counter/api' --filter '@counter/web' dev",
+    "dev:api": "bun run --filter '@counter/api' dev",
+    "dev:web": "bun run --filter '@counter/web' dev",
+    "db:generate": "bun run --filter '@counter/db' generate",
+    "db:migrate": "bun run --filter '@counter/db' migrate",
+    "db:push": "bun run --filter '@counter/db' push",
+    "db:seed": "bun run --filter '@counter/db' seed",
+    "setup": "bun install && bun run db:migrate && bun run db:seed",
+    "typecheck": "bun run --filter '*' typecheck"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.14",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  }
+}

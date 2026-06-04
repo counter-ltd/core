@@ -1,0 +1,27 @@
+{
+  "name": "@counter/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --port 5173",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "vite build && wrangler deploy",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@counter/config": "workspace:*",
+    "@counter/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-cloudflare": "^7.0.0",
+    "@sveltejs/kit": "^2.8.5",
+    "@sveltejs/vite-plugin-svelte": "^5.0.1",
+    "svelte": "^5.2.9",
+    "svelte-check": "^4.1.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.2",
+    "wrangler": "^4.20.0"
+  }
+}

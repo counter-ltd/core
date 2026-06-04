@@ -1,0 +1,19 @@
+node_modules/
+dist/
+build/
+.svelte-kit/
+.env
+.env.local
+*.log
+.DS_Store
+
+# Bun
+bun.lockb
+
+# Drizzle
+packages/db/drizzle/meta/_journal.bak
+
+# Cloudflare / Wrangler
+.dev.vars
+.wrangler/
+worker-configuration.d.ts
