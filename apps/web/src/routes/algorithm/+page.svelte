@@ -1,4 +1,15 @@
+<!--
+  Copyright (c) 2026 Counter (counter.ltd)
+  SPDX-License-Identifier: LicenseRef-CSL-1.0
+  Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+-->
 <script lang="ts">
+  /**
+   * Counter's "show your work" page: it publishes the live feed-ranking config
+   * (weights + parameters) and a history of every change to it. The numbers
+   * here are the exact ones the server ranks with, fetched from the algorithm
+   * endpoint. `data.algorithm` is null when that endpoint is down.
+   */
   import { timeAgo } from '$lib/format';
   let { data } = $props();
   const a = $derived(data.algorithm);
@@ -14,6 +25,8 @@
   </p>
 </header>
 
+<!-- The currently-live config. Hidden entirely if the endpoint didn't answer,
+     since there's nothing trustworthy to show. -->
 {#if a}
   <section class="panel card">
     <div class="spread">
@@ -22,6 +35,8 @@
     </div>
     <p class="desc">{a.description}</p>
 
+    <!-- weights and parameters are open-ended maps, so render whatever keys the
+         server sends rather than hard-coding a fixed set here -->
     <h3 class="sub">Weights</h3>
     <div class="grid">
       {#each Object.entries(a.weights) as [k, v] (k)}

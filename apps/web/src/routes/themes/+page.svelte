@@ -1,31 +1,51 @@
+<!--
+  Copyright (c) 2026 Counter (counter.ltd)
+  SPDX-License-Identifier: LicenseRef-CSL-1.0
+  Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+-->
 <script lang="ts">
+  /**
+   * The theme gallery. Browse community-published themes, apply one (it takes
+   * effect immediately and is remembered per-device, never synced to the
+   * server), and (if logged in) publish your own. A theme is just a set of
+   * CSS variable overrides, which is why applying one is a pure client action.
+   */
   import { enhance } from '$app/forms';
   import { applyTheme, THEME_STORAGE_KEY } from '$lib/theme';
   import type { Theme, ThemeVariables } from '@counter/types';
   let { data, form } = $props();
 
+  // Which theme is currently applied, so the matching card can show "Applied".
+  // Local UI state only; it isn't read back from anywhere on load.
   let active = $state<string | null>(null);
 
+  // Apply a theme: push its variables to the DOM now, mark it active, and save
+  // it so the layout can re-apply it on the next visit.
   function use(theme: Theme) {
     applyTheme(theme.variables);
     active = theme.id;
     try {
       localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(theme.variables));
     } catch {
-      /* ignore */
+      // Private-mode or full storage: the theme still applies for this session,
+      // it just won't persist. Not worth interrupting the user over.
     }
   }
 
+  // Back to the built-in defaults: applyTheme(null) strips the overrides and we
+  // forget the saved choice.
   function reset() {
     applyTheme(null);
     active = null;
     try {
       localStorage.removeItem(THEME_STORAGE_KEY);
     } catch {
-      /* ignore */
+      // Same as use(): a storage failure here is harmless.
     }
   }
 
+  // Pull the four headline colours for a card's preview swatches, skipping any
+  // a theme happens to leave undefined.
   function swatches(v: ThemeVariables): string[] {
     return ['--color-bg', '--color-accent', '--color-accent-2', '--color-text']
       .map((k) => v[k])
@@ -63,6 +83,8 @@
   {/each}
 </div>
 
+<!-- Publish form, members only. The colour inputs default to the app's stock
+     palette so a new theme starts from the current look rather than black. -->
 {#if data.user}
   <section class="panel create">
     <h2>Publish a theme</h2>

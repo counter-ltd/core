@@ -1,18 +1,45 @@
+// Copyright (c) 2026 Counter (counter.ltd)
+// SPDX-License-Identifier: LicenseRef-CSL-1.0
+// Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+
+/**
+ * The two feeds: the ranked public timeline and the chronological following
+ * feed. Both return a page of post ids plus a cursor for the next page.
+ *
+ * Both feeds page with keyset (cursor) pagination rather than OFFSET. The
+ * difference matters at scale: OFFSET makes the database walk and discard every
+ * row it skips, so deep pages get slower and slower, and a post inserted
+ * mid-scroll shifts every later page by one. Keyset instead says "give me the
+ * rows that sort after this exact one", which stays fast and stable no matter
+ * how far down you are or what got inserted while you read.
+ */
 import { db, posts, follows, sql, eq, and, or, lt, desc, isNull, inArray } from '@counter/db';
 import { ALGORITHM } from '@counter/config';
 
+/** A page of feed results: post ids in order, plus the cursor for the next page. */
 export interface FeedPage {
   ids: string[];
+  /**
+   * The id of the last post on this page, to pass back as `after` to continue.
+   * Null when this is the final page, which is how the caller knows to stop.
+   */
   nextCursor: string | null;
 }
 
 const { weights, parameters } = ALGORITHM;
 
 /**
- * The public ranking score, expressed in SQL so ranking happens in the database.
+ * The public ranking score, built as a SQL fragment so ranking happens in the
+ * database next to the data instead of pulling every candidate post into JS.
+ *
  * This is the open algorithm: recency decay plus weighted public engagement.
- * No personalization, no per-user signal — the same post scores the same for
- * everyone. Weights come from the ALGORITHM constant exposed at GET /algorithm.
+ * No personalization, no per-user signal, so the same post scores the same for
+ * everyone. The weights come from the ALGORITHM constant, the same one served
+ * at GET /algorithm, so the ranking we run matches the one we publish.
+ *
+ * The recency term is exponential half-life decay: `0.5 ^ (ageHours /
+ * halfLife)` is worth a full `recency` weight at age zero and halves every
+ * `recencyHalfLifeHours`, so fresh posts win on equal engagement.
  */
 function scoreSql() {
   return sql`(
@@ -27,9 +54,16 @@ function scoreSql() {
 }
 
 /**
- * Ranked public feed. Top-level, non-deleted posts within the max-age window,
- * ordered by algorithm score. Keyset pagination on (score, id): the cursor is
- * the last post id, whose score we recompute to fetch the next page.
+ * The ranked public feed: top-level, non-deleted posts within the max-age
+ * window, ordered by the algorithm score above.
+ *
+ * Paginates by keyset on the (score, id) pair. Score alone isn't a stable sort
+ * key because two posts can tie, so id is the tie-breaker that guarantees a
+ * total order and keeps any single post from being skipped or repeated across
+ * pages.
+ *
+ * @param after  Cursor: the id of the last post the caller already has.
+ * @param limit  Page size. We fetch one extra row to detect a next page.
  */
 export async function rankedPublicFeed(opts: {
   after?: string;
@@ -43,7 +77,9 @@ export async function rankedPublicFeed(opts: {
 
   let where = base;
   if (after) {
-    // Recompute the cursor post's score to continue the keyset scan.
+    // The score isn't stored, it's computed, so the cursor can only be a post
+    // id. Re-run the scoring SQL for that one post to recover the (score, id)
+    // pair the next page has to start after.
     const cursorRows = await db
       .select({ score: score.as('score'), id: posts.id })
       .from(posts)
@@ -52,6 +88,9 @@ export async function rankedPublicFeed(opts: {
     const cursor = cursorRows[0];
     if (cursor) {
       const cursorScore = Number(cursor.score);
+      // "Strictly after the cursor in (score desc, id desc) order": either a
+      // lower score, or the same score with a smaller id. This mirrors the
+      // orderBy exactly; if the two ever disagree, rows get dropped or doubled.
       where = and(
         base,
         or(
@@ -69,6 +108,8 @@ export async function rankedPublicFeed(opts: {
     .orderBy(desc(score), desc(posts.id))
     .limit(limit + 1);
 
+  // Asking for limit+1 rows is the cheap way to know if more exist: if the extra
+  // row came back there's another page, and we drop it before returning.
   const hasMore = rows.length > limit;
   const page = rows.slice(0, limit);
   return {
@@ -78,8 +119,14 @@ export async function rankedPublicFeed(opts: {
 }
 
 /**
- * Authenticated home feed: top-level posts from people you follow, plus your
- * own, reverse-chronological. Keyset by created_at then id for stability.
+ * The authenticated home feed: top-level posts from people you follow plus your
+ * own, newest first. No ranking here, just reverse-chronological.
+ *
+ * Same keyset technique as the public feed, but on (created_at, id). created_at
+ * isn't unique (two posts can land in the same millisecond), so id is again the
+ * tie-breaker that makes the sort total.
+ *
+ * @param viewerId  Whose follow graph defines the feed; their own posts are in too.
  */
 export async function followingFeed(opts: {
   viewerId: string;
@@ -88,6 +135,8 @@ export async function followingFeed(opts: {
 }): Promise<FeedPage> {
   const { viewerId, after, limit } = opts;
 
+  // Include viewerId alongside everyone they follow, so your own posts show up
+  // in your home feed without needing to follow yourself.
   const followingRows = await db
     .select({ id: follows.followingId })
     .from(follows)
@@ -102,6 +151,8 @@ export async function followingFeed(opts: {
 
   let where = base;
   if (after) {
+    // created_at is a stored column, so unlike the ranked feed we can read the
+    // cursor's sort value directly instead of recomputing anything.
     const cursorRows = await db
       .select({ createdAt: posts.createdAt })
       .from(posts)
@@ -109,6 +160,8 @@ export async function followingFeed(opts: {
       .limit(1);
     const cursor = cursorRows[0];
     if (cursor) {
+      // Same "strictly after the cursor" shape as the ranked feed, on
+      // (created_at desc, id desc): older, or same instant with a smaller id.
       where = and(
         base,
         or(

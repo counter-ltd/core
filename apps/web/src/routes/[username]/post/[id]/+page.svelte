@@ -1,9 +1,21 @@
+<!--
+  Copyright (c) 2026 Counter (counter.ltd)
+  SPDX-License-Identifier: LicenseRef-CSL-1.0
+  Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+-->
 <script lang="ts">
+  /**
+   * A single post shown in thread context: its ancestors above (the chain that
+   * led to it), the focused post itself, the reply composer, then its direct
+   * replies below. The load groups all three into `data.thread`.
+   */
   import PostCard from '$lib/components/PostCard.svelte';
   import Composer from '$lib/components/Composer.svelte';
   let { data } = $props();
 
   const t = $derived(data.thread);
+  // Canonical URL of the focused post, used as the redirect target for every
+  // like/repost/reply on this page so actions land back here.
   const here = $derived(`/${t.post.author.username}/post/${t.post.id}`);
 </script>
 
@@ -11,6 +23,8 @@
   <title>{t.post.author.displayName || t.post.author.username} on Counter</title>
 </svelte:head>
 
+<!-- The reply chain leading up to this post, oldest first, so the thread reads
+     top to bottom. The trailing line visually connects it to the focused post. -->
 {#if t.ancestors.length}
   <div class="stack ancestors">
     {#each t.ancestors as a (a.id)}
@@ -24,6 +38,7 @@
   <PostCard post={t.post} currentUser={data.user} redirectTo={here} />
 </div>
 
+<!-- Reply box for members; guests get a nudge to log in instead -->
 {#if data.user}
   <div class="reply">
     <Composer parentId={t.post.id} redirectTo={here} placeholder="Post your reply…" cta="Reply" />
@@ -50,6 +65,8 @@
     margin-left: 38px;
     background: var(--color-border-bright);
   }
+  /* Reach into the PostCard's own markup to brighten the focused post's border,
+     so it stands out from its ancestors and replies. */
   .focus :global(.post) {
     border-color: var(--color-border-bright);
   }

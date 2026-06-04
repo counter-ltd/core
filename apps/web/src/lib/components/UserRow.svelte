@@ -1,4 +1,19 @@
+<!--
+  Copyright (c) 2026 Counter (counter.ltd)
+  SPDX-License-Identifier: LicenseRef-CSL-1.0
+  Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+-->
 <script lang="ts">
+  /**
+   * A user in a list (followers, search results, suggestions): avatar, name,
+   * handle, optional bio, and a follow/unfollow button.
+   *
+   * Props:
+   *   user         The user this row is about.
+   *   currentUser  The signed-in viewer, or null. The follow button only shows
+   *                when someone's logged in and looking at someone else.
+   *   redirectTo   Where the interact action returns to after follow/unfollow.
+   */
   import type { PublicUser, PrivateUser } from '@counter/types';
   import Avatar from './Avatar.svelte';
 
@@ -8,6 +23,8 @@
     redirectTo = '/',
   }: { user: PublicUser; currentUser?: PrivateUser | null; redirectTo?: string } = $props();
 
+  // viewer is missing for logged-out readers, so default to false. isSelf lets
+  // us hide the follow button on your own row.
   const isFollowing = $derived(user.viewer?.isFollowing ?? false);
   const isSelf = $derived(user.viewer?.isSelf ?? false);
 </script>
@@ -19,6 +36,7 @@
     <small class="faint">@{user.username}</small>
     {#if user.bio}<span class="bio muted">{user.bio}</span>{/if}
   </a>
+  <!-- No follow button for logged-out viewers or on your own row. -->
   {#if currentUser && !isSelf}
     <form method="POST" action="/actions/interact">
       <input type="hidden" name="kind" value={isFollowing ? 'unfollow' : 'follow'} />

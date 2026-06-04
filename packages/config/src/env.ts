@@ -1,3 +1,15 @@
+// Copyright (c) 2026 Counter (counter.ltd)
+// SPDX-License-Identifier: LicenseRef-CSL-1.0
+// Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+
+/**
+ * Server-side environment loading and validation. This file uses node:fs, so it
+ * is server-only: never import it into the web bundle. Browser-safe constants
+ * live in constants.ts, re-exported from the package index.
+ *
+ * Two jobs here. loadRootEnv() finds and reads the monorepo's shared `.env`,
+ * and loadServerEnv() validates what landed in process.env into a typed config.
+ */
 import { z } from 'zod';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -5,8 +17,13 @@ import { dirname, join } from 'node:path';
 /**
  * Load the monorepo's root `.env` into process.env. Bun only auto-loads `.env`
  * from the current working directory, but our processes start from various
- * package dirs (apps/api, packages/db). Walk up until we find a `.env`.
- * Existing process.env values always win (so real env / CI overrides the file).
+ * package dirs (apps/api, packages/db), so we walk up the tree until we find one.
+ *
+ * Existing process.env values always win, so real env and CI overrides take
+ * precedence over whatever the file says. The 8-level cap stops the walk from
+ * running off to the filesystem root if there is no `.env` anywhere.
+ *
+ * @param startDir  Directory to begin the upward search from; defaults to cwd.
  */
 export function loadRootEnv(startDir: string = process.cwd()): void {
   let dir = startDir;
@@ -37,13 +54,14 @@ export function loadRootEnv(startDir: string = process.cwd()): void {
 }
 
 /**
- * Server-side environment validation. Call loadServerEnv() once at process
- * start (API, db migrations, seed). The web client does NOT use this — it reads
- * PUBLIC_API_URL through Vite's own env handling.
+ * The shape every server process expects its environment to have. Call
+ * loadServerEnv() once at process start (API, db migrations, seed). The web
+ * client does NOT use this; it reads PUBLIC_API_URL through Vite's own env
+ * handling instead.
  */
 const serverEnvSchema = z.object({
   // Optional: Node/Bun (migrate, seed, local) use this directly. On Cloudflare
-  // Workers there is no DATABASE_URL — the connection comes from the Hyperdrive
+  // Workers there is no DATABASE_URL; the connection comes from the Hyperdrive
   // binding at request time instead.
   DATABASE_URL: z.string().min(1).optional(),
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
@@ -58,15 +76,18 @@ const serverEnvSchema = z.object({
   // API-specific port. We deliberately do NOT read a bare `PORT`: in a monorepo
   // dev setup the web framework also claims PORT, and some harnesses inject it,
   // which would make the API and web collide on one port. The API's port is
-  // derived from PUBLIC_API_URL (or API_PORT) instead — a single source of truth.
+  // derived from PUBLIC_API_URL (or API_PORT) instead, a single source of truth.
   API_PORT: z.coerce.number().optional(),
 });
 
+/** The validated environment, plus the resolved port the rest of the app reads. */
 export type ServerEnv = z.infer<typeof serverEnvSchema> & {
   /** The effective port the API should bind. */
   apiPort: number;
 };
 
+// Validation is idempotent and the env doesn't change mid-process, so we parse
+// once and hand back the same object on every later call.
 let cached: ServerEnv | null = null;
 
 /** Pull the port out of a URL, or null if none is present. */
@@ -79,6 +100,15 @@ function portFromUrl(url: string): number | null {
   }
 }
 
+/**
+ * Validate the environment and return the typed config, caching the result.
+ *
+ * On a bad env it throws with every failing variable listed at once, so you fix
+ * the whole config in one pass instead of rerunning to find the next mistake.
+ *
+ * @param source  Where to read raw values from; defaults to process.env. Mainly
+ *                a seam for tests to pass a fixed environment.
+ */
 export function loadServerEnv(source: Record<string, string | undefined> = process.env): ServerEnv {
   if (cached) return cached;
   const parsed = serverEnvSchema.safeParse(source);
@@ -88,6 +118,8 @@ export function loadServerEnv(source: Record<string, string | undefined> = proce
       .join('\n');
     throw new Error(`Invalid environment configuration:\n${issues}`);
   }
+  // Prefer an explicit API_PORT, fall back to the port in PUBLIC_API_URL, and
+  // land on 3000 only if neither is set.
   const apiPort = parsed.data.API_PORT ?? portFromUrl(parsed.data.PUBLIC_API_URL) ?? 3000;
   cached = { ...parsed.data, apiPort };
   return cached;

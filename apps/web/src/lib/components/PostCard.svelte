@@ -1,4 +1,27 @@
+<!--
+  Copyright (c) 2026 Counter (counter.ltd)
+  SPDX-License-Identifier: LicenseRef-CSL-1.0
+  Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+-->
 <script lang="ts">
+  /**
+   * One post in a feed or thread: author header, body, any media, and the
+   * reply / repost / like / views action bar.
+   *
+   * This component renders itself. A repost embeds the post it quotes by
+   * mounting another PostCard with `nested` set, which is why the import below
+   * points back at this file. Nested cards are display-only: they drop the
+   * topic badge and the whole action bar so a quoted post can't be acted on
+   * from inside its wrapper.
+   *
+   * Props:
+   *   post         The post to render.
+   *   currentUser  The signed-in viewer, or null. When null the action buttons
+   *                become "log in to..." links instead of live forms.
+   *   redirectTo   Where the interact action returns to, so a like/repost lands
+   *                you back on the page you did it from.
+   *   nested       True when we're the embedded quote inside a repost.
+   */
   import type { Post, PrivateUser } from '@counter/types';
   import Avatar from './Avatar.svelte';
   import PostCard from './PostCard.svelte';
@@ -17,6 +40,8 @@
   } = $props();
 
   const permalink = $derived(`/${post.author.username}/post/${post.id}`);
+  // viewer is absent for logged-out readers, so default these to false rather
+  // than letting undefined drive the button state.
   const liked = $derived(post.viewer?.liked ?? false);
   const reposted = $derived(post.viewer?.reposted ?? false);
 </script>
@@ -34,6 +59,13 @@
     <a href={permalink} class="time faint">{timeAgo(post.createdAt)}{post.edited ? ' · edited' : ''}</a>
   </div>
 
+  <!-- Topic badge only on top-level cards; a quoted post hides its own topic. -->
+  {#if post.topic && !nested}
+    <a href="/topics/{post.topic.slug}" class="topic-badge faint">▦ {post.topic.name}</a>
+  {/if}
+
+  <!-- linkify turns @mentions and #tags into anchors, hence the {@html}. It
+       must sanitise its input since the body is user-authored. -->
   <a href={permalink} class="bodylink">
     {#if post.deleted}
       <p class="body deleted faint">[deleted]</p>
@@ -50,16 +82,21 @@
     </div>
   {/if}
 
+  <!-- The quoted post, rendered as a nested (display-only) card. -->
   {#if post.repostOf}
     <PostCard post={post.repostOf} {currentUser} {redirectTo} nested={true} />
   {/if}
 
+  <!-- Action bar is top-level only, so you can't interact with a quoted post. -->
   {#if !nested}
     <div class="actions">
       <a class="act" href={permalink} title="Reply">
         <span class="ico">↩</span>{compact(post.counts.replies)}
       </a>
 
+      <!-- Logged in: real forms that toggle state. The same button does and
+           undoes the action; current state picks which verb we send. Logged
+           out: the buttons fall back to login links below. -->
       {#if currentUser}
         <form method="POST" action="/actions/interact" class="act-form">
           <input type="hidden" name="kind" value={reposted ? 'unrepost' : 'repost'} />
@@ -120,6 +157,19 @@
     font-family: var(--mono);
     font-size: 0.78rem;
   }
+  .topic-badge {
+    display: inline-block;
+    margin-top: var(--space-2);
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    padding: 1px 6px;
+  }
+  .topic-badge:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
   .time {
     margin-left: auto;
     font-family: var(--mono);
@@ -164,6 +214,9 @@
     gap: var(--space-5);
     margin-top: var(--space-4);
   }
+  /* Each action is wrapped in its own <form>, but we don't want those form
+     boxes breaking up the flex row. display:contents makes the form vanish
+     from layout so its button sits in the bar as if the form weren't there. */
   .act-form {
     display: contents;
   }

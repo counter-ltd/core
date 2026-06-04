@@ -1,7 +1,26 @@
+// Copyright (c) 2026 Counter (counter.ltd)
+// SPDX-License-Identifier: LicenseRef-CSL-1.0
+// Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+
+/**
+ * The one error type the API throws on purpose, plus shorthands for minting it.
+ *
+ * Handlers `throw errors.notFound()` and similar; the central onError handler
+ * recognises an AppError and turns it into the right HTTP status and JSON body.
+ * Anything that *isn't* an AppError is treated as an unexpected bug and becomes
+ * a generic 500, so this type is also the line between "expected" and "we
+ * didn't see that coming".
+ */
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { ERROR_CODES } from '@counter/config';
 
-/** A thrown error that maps cleanly to the `{ error: { code, message } }` shape. */
+/**
+ * An error that already knows its HTTP status and machine-readable code.
+ *
+ * Carrying the status and code on the error means a handler can fail from deep
+ * in its logic with `throw errors.forbidden()` and trust the response will come
+ * out shaped right, no try/catch at the call site.
+ */
 export class AppError extends Error {
   constructor(
     public readonly status: ContentfulStatusCode,
@@ -13,6 +32,13 @@ export class AppError extends Error {
   }
 }
 
+/**
+ * Factory shorthands, one per HTTP failure we raise deliberately.
+ *
+ * The status and code for each are fixed here so they stay consistent across
+ * every route; callers only supply a message when the default isn't specific
+ * enough.
+ */
 export const errors = {
   validation: (message = 'Invalid request') =>
     new AppError(422, ERROR_CODES.VALIDATION, message),

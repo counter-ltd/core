@@ -1,4 +1,14 @@
+<!--
+  Copyright (c) 2026 Counter (counter.ltd)
+  SPDX-License-Identifier: LicenseRef-CSL-1.0
+  Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+-->
 <script lang="ts">
+  /**
+   * The public square, aka the home page. This is the algorithm-ranked public feed
+   * that anyone can read without logging in. The composer only appears for
+   * signed-in users; everyone else just reads.
+   */
   import PostCard from '$lib/components/PostCard.svelte';
   import Composer from '$lib/components/Composer.svelte';
   let { data } = $props();
@@ -16,6 +26,7 @@
   </p>
 </header>
 
+<!-- Only logged-in people can post; the redirect brings them back here after -->
 {#if data.user}
   <Composer redirectTo="/" placeholder="Say something public…" />
 {/if}
@@ -28,6 +39,8 @@
   {/each}
 </div>
 
+<!-- Cursor pagination: a link rather than a button so it works without JS and
+     keeps the URL shareable. nextCursor is absent on the last page. -->
 {#if data.feed.nextCursor}
   <a class="btn more" href="/?after={data.feed.nextCursor}">Load more</a>
 {/if}

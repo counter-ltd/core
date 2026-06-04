@@ -1,4 +1,20 @@
+<!--
+  Copyright (c) 2026 Counter (counter.ltd)
+  SPDX-License-Identifier: LicenseRef-CSL-1.0
+  Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+-->
 <script lang="ts">
+  /**
+   * A user's avatar, linking to their profile. Shows their picture when they
+   * have one, otherwise falls back to the first letter of their name.
+   *
+   * Props:
+   *   user  Just the bits we need to render and link: username, displayName,
+   *         and avatarUrl. We take a narrow Pick so callers can hand us a
+   *         partial user without owning a whole PublicUser.
+   *   size  Edge length in pixels. Drives both the box and the initial's font
+   *         size, so one number scales the whole thing.
+   */
   import type { PublicUser } from '@counter/types';
 
   let {
@@ -7,6 +23,8 @@
   }: { user: Pick<PublicUser, 'username' | 'displayName' | 'avatarUrl'>; size?: number } =
     $props();
 
+  // Fallback glyph when there's no picture. Prefer the display name, fall back
+  // to the username, and use '?' only if somehow both are empty.
   const initial = $derived((user.displayName || user.username || '?').charAt(0).toUpperCase());
 </script>
 

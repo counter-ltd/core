@@ -1,4 +1,14 @@
+<!--
+  Copyright (c) 2026 Counter (counter.ltd)
+  SPDX-License-Identifier: LicenseRef-CSL-1.0
+  Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+-->
 <script lang="ts">
+  /**
+   * The signed-in user's following feed: posts from accounts they follow, newest
+   * first. Unlike the public square, this one is plain reverse-chronological with
+   * no ranking, and it's a logged-in-only route (the load guards access).
+   */
   import PostCard from '$lib/components/PostCard.svelte';
   import Composer from '$lib/components/Composer.svelte';
   let { data } = $props();

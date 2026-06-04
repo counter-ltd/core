@@ -1,9 +1,22 @@
+<!--
+  Copyright (c) 2026 Counter (counter.ltd)
+  SPDX-License-Identifier: LicenseRef-CSL-1.0
+  Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+-->
 <script lang="ts">
+  /**
+   * The user's notification inbox. Each entry pairs an actor with what they did;
+   * unread ones get a highlighted border, and "Mark all read" clears them in one
+   * action. Logged-in only.
+   */
   import Avatar from '$lib/components/Avatar.svelte';
   import { timeAgo } from '$lib/format';
   import type { Notification } from '@counter/types';
   let { data } = $props();
 
+  // Turn each notification type into the phrase shown next to the actor's name.
+  // Keyed by the type union so adding a new notification type is a compile error
+  // until it's given a verb here.
   const verbs: Record<Notification['type'], string> = {
     like: 'liked your post',
     repost: 'reposted your post',
@@ -12,6 +25,8 @@
     mention: 'mentioned you',
   };
 
+  // Where clicking the notification takes you: the post it's about if there is
+  // one (like/repost/reply/mention), otherwise the actor's profile (a follow).
   function target(n: Notification): string {
     if (n.post) return `/${n.post.author.username}/post/${n.post.id}`;
     return `/${n.actor.username}`;

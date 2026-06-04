@@ -1,3 +1,12 @@
+// Copyright (c) 2026 Counter (counter.ltd)
+// SPDX-License-Identifier: LicenseRef-CSL-1.0
+// Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+
+/**
+ * Local dev seed. Wipes the content tables and inserts a small, believable
+ * dataset (three users, a handful of posts, follows, likes, views, a theme) so
+ * the app renders something real on first run. Bun-only, never on Workers.
+ */
 import { loadRootEnv, loadServerEnv } from '@counter/config/env';
 import { ALGORITHM } from '@counter/config';
 
@@ -5,6 +14,8 @@ loadRootEnv();
 const env = loadServerEnv();
 if (!env.DATABASE_URL) throw new Error('DATABASE_URL must be set to seed.');
 
+// Dynamic import after the env check so client.ts/schema.ts only load once we
+// know there's a database to talk to.
 const { createDb, runWithDb, db } = await import('./client.ts');
 const schema = await import('./schema.ts');
 const { users, posts, follows, likes, reposts, tags, postTags, themes, algorithmChangelog, postViews } =
@@ -12,14 +23,14 @@ const { users, posts, follows, likes, reposts, tags, postTags, themes, algorithm
 
 const instance = createDb(env.DATABASE_URL);
 
-/**
- * Idempotent-ish seed: clears content tables and inserts a small, realistic
- * dataset so the app has something to render on first run. Safe for local dev.
- */
+// Everything runs inside runWithDb so the ambient `db` resolves to this
+// connection (see client.ts). Re-running the seed replaces the data, it doesn't
+// stack on top, since we clear the tables first.
 await runWithDb(instance, async () => {
   console.log('Seeding…');
 
-  // Clear in FK-safe order.
+  // Delete children before parents so foreign keys never block a delete. This
+  // order is the reverse of how the rows depend on each other.
   await db.delete(postViews);
   await db.delete(postTags);
   await db.delete(likes);
@@ -31,7 +42,8 @@ await runWithDb(instance, async () => {
   await db.delete(algorithmChangelog);
   await db.delete(users);
 
-  // PBKDF2 password hash, identical scheme to the API's WebCrypto hasher.
+  // Every seed user shares one password. We hash it once and reuse it; the
+  // format matches the API's hasher so these accounts can actually log in.
   const passwordHash = await hashPassword('password123');
 
   const [ada, linus, grace] = await db
@@ -63,6 +75,9 @@ await runWithDb(instance, async () => {
     ])
     .returning();
 
+  // .returning() hands back the inserted rows so we can wire up relationships
+  // below with the generated ids. The guards keep TypeScript happy and catch a
+  // silently empty insert early.
   if (!ada || !linus || !grace) throw new Error('Seed users failed');
 
   const [open, code] = await db
@@ -81,6 +96,7 @@ await runWithDb(instance, async () => {
 
   if (!p1 || !p2 || !p3 || !open || !code) throw new Error('Seed posts/tags failed');
 
+  // A reply to p1: parentId set, so it threads under Ada's launch post.
   await db
     .insert(posts)
     .values([{ userId: linus.id, body: 'Finally. A platform that respects this.', parentId: p1.id }]);
@@ -104,7 +120,9 @@ await runWithDb(instance, async () => {
 
   await db.insert(reposts).values([{ userId: grace.id, postId: p2.id }]);
 
-  // Anonymous view ticks (no identity attached).
+  // Anonymous view ticks, one row per view, no identity attached (see the
+  // post_views privacy note in schema.ts). Uneven counts make the numbers in
+  // the UI look lived-in rather than placeholder.
   const views = [
     ...Array.from({ length: 12 }, () => ({ postId: p1.id, referrer: 'feed' })),
     ...Array.from({ length: 5 }, () => ({ postId: p1.id, referrer: 'profile' })),
@@ -128,6 +146,8 @@ await runWithDb(instance, async () => {
     },
   ]);
 
+  // First entry in the public transparency log, pinned to the algorithm version
+  // shipped in @counter/config so the log and the live weights agree.
   await db.insert(algorithmChangelog).values([
     {
       version: ALGORITHM.version,
@@ -143,11 +163,17 @@ await runWithDb(instance, async () => {
 });
 
 await instance.sql.end();
+// Force exit so a lingering postgres handle doesn't keep the process alive.
 process.exit(0);
 
-/** Inline copy of the API's PBKDF2 hasher so seed and runtime agree on format. */
+/**
+ * Inline copy of the API's PBKDF2 hasher so seeded accounts hash identically to
+ * ones created through signup and can log in. Output format is
+ * `pbkdf2$iterations$saltB64$hashB64`, which the API's verifier parses back.
+ */
 async function hashPassword(password: string): Promise<string> {
   const iterations = 100_000;
+  // Random per-password salt so two users with the same password hash differently.
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const key = await crypto.subtle.importKey(
     'raw',

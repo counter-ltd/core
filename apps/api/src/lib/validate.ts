@@ -1,8 +1,27 @@
+// Copyright (c) 2026 Counter (counter.ltd)
+// SPDX-License-Identifier: LicenseRef-CSL-1.0
+// Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+
+/**
+ * Thin bridge from a raw Hono request to a validated, typed value.
+ *
+ * Routes hand in a Zod schema and get back data already narrowed to its type,
+ * so handler bodies never touch unparsed input. Validation failures are thrown,
+ * not returned, so the happy path stays linear and the central error handler
+ * turns them into 422s.
+ */
 import type { Context } from 'hono';
 import type { z } from 'zod';
 import { errors } from './errors.ts';
 
-/** Parse and validate a JSON body. ZodErrors bubble to the central handler. */
+/**
+ * Read and validate the JSON request body against a schema.
+ *
+ * Malformed JSON and schema violations are two different failures: a body that
+ * doesn't parse as JSON at all gets its own clear message here, while a parsed
+ * body that breaks the schema throws a ZodError that the central handler
+ * formats. Either way the caller receives data already typed as `z.infer<T>`.
+ */
 export async function body<T extends z.ZodTypeAny>(c: Context, schema: T): Promise<z.infer<T>> {
   let raw: unknown;
   try {
@@ -13,7 +32,13 @@ export async function body<T extends z.ZodTypeAny>(c: Context, schema: T): Promi
   return schema.parse(raw);
 }
 
-/** Parse and validate the query string. */
+/**
+ * Validate the query string against a schema.
+ *
+ * No JSON-parse step to guard here: query params are always strings, so the
+ * schema does all the work (coercing, defaulting, rejecting). Lean on Zod's
+ * `coerce`/`default` for things like numeric limits and cursors.
+ */
 export function query<T extends z.ZodTypeAny>(c: Context, schema: T): z.infer<T> {
   return schema.parse(c.req.query());
 }

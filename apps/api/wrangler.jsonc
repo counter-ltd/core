@@ -13,9 +13,17 @@
   },
   "vars": {
     "PUBLIC_API_URL": "https://api.counter.ltd",
+    // Web origin the API points users back to (e.g. the email-verification link).
+    "PUBLIC_WEB_URL": "https://counter.ltd",
     "JWT_EXPIRES_IN": "15m",
     "JWT_REFRESH_EXPIRES_IN": "30d"
   },
+  // Transactional email (the account-deletion confirmation the CSL requires).
+  // Onboard the sending domain once before this works:
+  //   wrangler email sending enable counter.ltd
+  // which provisions the SPF/DKIM/DMARC records. Until then the API still runs;
+  // the send is guarded on this binding and skipped when it's absent.
+  "send_email": [{ "name": "EMAIL" }],
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",

@@ -1,3 +1,17 @@
+// Copyright (c) 2026 Counter (counter.ltd)
+// SPDX-License-Identifier: LicenseRef-CSL-1.0
+// Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+
+/**
+ * User-facing endpoints: your own profile, other people's public profiles,
+ * their posts, their follower/following lists, and the follow/unfollow actions.
+ *
+ * A viewer's identity is optional on the read endpoints (it only affects
+ * viewer-relative fields like `isFollowing`), so those run under `optionalAuth`
+ * and read `c.get('userId')` directly. The mutating routes sit behind
+ * `requireAuth`. Listing endpoints all use the shared keyset cursor helpers for
+ * stable pagination.
+ */
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import {
@@ -29,11 +43,16 @@ export const userRoutes = new Hono<AppEnv>();
 
 // --- own profile ---
 
+// The caller's own profile, including private fields like email that the public
+// view withholds.
 userRoutes.get('/me', requireAuth, async (c) => {
   const userId = requireUserId(c);
   return c.json(await getPrivateUser(userId));
 });
 
+// Partial profile update. We build the patch with `'x' in input` rather than
+// truthiness checks so a caller can deliberately clear a field (send `null` for
+// bio) without us mistaking that for "field omitted, leave it alone".
 userRoutes.patch('/me', requireAuth, async (c) => {
   const userId = requireUserId(c);
   const input = await body(c, updateProfileSchema);
@@ -49,11 +68,16 @@ userRoutes.patch('/me', requireAuth, async (c) => {
 
 // --- public profile ---
 
+// Anyone's public profile by username. The optional viewer id lets the response
+// carry viewer-relative flags (e.g. whether you follow this person).
 userRoutes.get('/:username', async (c) => {
   const viewerId = c.get('userId');
   return c.json(await getPublicUser(c.req.param('username'), viewerId));
 });
 
+// A user's own posts, newest first, keyset-paginated. The `after` cursor is a
+// post id; we look that post up to recover its (createdAt, id) sort position,
+// and silently ignore an unknown id rather than erroring on a stale cursor.
 userRoutes.get('/:username/posts', async (c) => {
   const viewerId = c.get('userId');
   const { after, limit } = query(c, paginationQuerySchema);
@@ -86,14 +110,23 @@ userRoutes.get('/:username/posts', async (c) => {
 
 // --- follower / following lists ---
 
+/**
+ * Page through one side of the follow graph for a user. Both the
+ * `/followers` and `/following` endpoints are this same query with the two
+ * `follows` columns swapped, so we factor it out and pick the columns by
+ * `direction`.
+ *
+ * The `follows` table has one row per edge: `followerId -> followingId`. For
+ * followers we anchor on `followingId = target` and list each `followerId`; for
+ * following we anchor on `followerId = target` and list each `followingId`. The
+ * cursor anchors on the listed user's id within that anchored set.
+ */
 async function followList(c: Context<AppEnv>, direction: 'followers' | 'following') {
   const viewerId = c.get('userId');
   const { after, limit } = query(c, paginationQuerySchema);
   const target = await findUserByUsername(c.req.param('username') as string);
   if (!target) throw errors.notFound('User not found');
 
-  // followers: rows where following_id = target, list the follower.
-  // following: rows where follower_id = target, list the followed.
   const anchorCol = direction === 'followers' ? follows.followingId : follows.followerId;
   const otherCol = direction === 'followers' ? follows.followerId : follows.followingId;
 
@@ -122,6 +155,8 @@ async function followList(c: Context<AppEnv>, direction: 'followers' | 'followin
     idRows.map((r) => r.id),
     viewerId,
   );
+  // serializeUsers returns a map, so re-walk idRows to keep the cursor order and
+  // drop any id that didn't serialize (e.g. a since-deleted user).
   const data = idRows.map((r) => userMap.get(r.id)).filter((u): u is PublicUser => !!u);
   return c.json<Page<PublicUser>>({ data, nextCursor });
 }
@@ -131,6 +166,10 @@ userRoutes.get('/:username/following', (c) => followList(c, 'following'));
 
 // --- follow / unfollow ---
 
+// Follow a user. `onConflictDoNothing` makes a repeat follow a no-op, and we
+// only fire the notification when a row was actually inserted, so re-following
+// someone you already follow doesn't spam them. Self-follows are rejected up
+// front.
 userRoutes.post('/:username/follow', requireAuth, async (c) => {
   const viewerId = requireUserId(c);
   const target = await findUserByUsername(c.req.param('username'));
@@ -149,6 +188,8 @@ userRoutes.post('/:username/follow', requireAuth, async (c) => {
   return c.json({ ok: true, following: true });
 });
 
+// Unfollow. Idempotent: deleting a non-existent edge is fine and still reports
+// `following: false`, which is the state the caller wanted.
 userRoutes.delete('/:username/follow', requireAuth, async (c) => {
   const viewerId = requireUserId(c);
   const target = await findUserByUsername(c.req.param('username'));

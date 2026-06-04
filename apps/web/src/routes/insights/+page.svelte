@@ -1,7 +1,20 @@
+<!--
+  Copyright (c) 2026 Counter (counter.ltd)
+  SPDX-License-Identifier: LicenseRef-CSL-1.0
+  Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+-->
 <script lang="ts">
+  /**
+   * Analytics for the logged-in user, in three optional sections: a single
+   * post's stats (when ?post=… is set), the user's profile totals, and
+   * platform-wide aggregates. Every number is an anonymous count; views are
+   * never tied to an individual viewer, which is the whole point of the page.
+   */
   import { compact } from '$lib/format';
   let { data } = $props();
 
+  // Fixed colour per referrer source so the same source reads the same colour
+  // every time the breakdown bars render.
   const referrerColors: Record<string, string> = {
     feed: 'var(--color-accent)',
     profile: 'var(--color-accent-2)',
@@ -10,11 +23,15 @@
     external: 'var(--color-like)',
   };
 
+  // Drop referrers with zero views so the bar chart only lists sources that
+  // actually sent traffic.
   const postBreakdown = $derived(
     data.post
       ? Object.entries(data.post.viewsByReferrer).filter(([, v]) => v > 0)
       : [],
   );
+  // The largest single referrer count, used as the 100%-width baseline for the
+  // bars. Floored at 1 so we never divide by zero when there are no views yet.
   const postMax = $derived(
     data.post ? Math.max(1, ...Object.values(data.post.viewsByReferrer)) : 1,
   );
@@ -25,6 +42,7 @@
 <h1 class="title">Insights</h1>
 <p class="muted sub">Open from your first post. No follower gate, ever. Views are anonymous counts.</p>
 
+<!-- Per-post section: only present when the page was opened for a specific post -->
 {#if data.post}
   <section class="panel card">
     <h2>Post insights</h2>
@@ -33,6 +51,8 @@
       <div class="stat"><strong>{compact(data.post.likes)}</strong><span class="faint">likes</span></div>
       <div class="stat"><strong>{compact(data.post.reposts)}</strong><span class="faint">reposts</span></div>
       <div class="stat"><strong>{compact(data.post.replies)}</strong><span class="faint">replies</span></div>
+      <!-- Engagement is null when there are no views to divide by; show a dash
+           rather than NaN% or a misleading 0%. -->
       <div class="stat">
         <strong>{data.post.engagementRate === null ? '—' : (data.post.engagementRate * 100).toFixed(1) + '%'}</strong>
         <span class="faint">engagement</span>
@@ -46,6 +66,8 @@
           <div class="barrow">
             <span class="rlabel">{ref}</span>
             <div class="track">
+              <!-- Bar width is this referrer's share of the biggest one, so the
+                   top source fills the track and the rest scale against it. -->
               <div class="fill" style="width:{(n / postMax) * 100}%; background:{referrerColors[ref]}"></div>
             </div>
             <span class="rval faint">{n}</span>

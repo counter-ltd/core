@@ -1,3 +1,17 @@
+// Copyright (c) 2026 Counter (counter.ltd)
+// SPDX-License-Identifier: LicenseRef-CSL-1.0
+// Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+
+/**
+ * Turning raw database rows into the API's public shapes: PublicUser and Post.
+ *
+ * Everything here is built to serialize a whole batch of ids at once, not one
+ * row at a time. A feed page is dozens of posts, each with an author, counts,
+ * media, tags, and viewer flags. Done naively that's an N+1 explosion of
+ * queries. Instead each serializer runs a fixed handful of aggregate queries
+ * over the entire id set in parallel, then stitches the results together in
+ * memory. The query count stays flat no matter how big the page is.
+ */
 import {
   db,
   users,
@@ -9,17 +23,23 @@ import {
   postViews,
   postTags,
   tags,
+  topics,
   eq,
   and,
   inArray,
   isNull,
   count,
 } from '@counter/db';
-import type { PublicUser, Post, MediaItem } from '@counter/types';
+import type { PublicUser, Post, MediaItem, TopicRef } from '@counter/types';
 
 const iso = (d: Date) => d.toISOString();
 
-/** Build a Map of postId/userId → count from a grouped-count query. */
+/**
+ * Fold the rows of a `GROUP BY ... count()` query into an id → count lookup.
+ *
+ * The count comes back as a bigint and arrives as a string from the driver, so
+ * Number() coerces it to a usable number on the way in.
+ */
 function toCountMap(rows: Array<{ id: string; value: number }>): Map<string, number> {
   const m = new Map<string, number>();
   for (const r of rows) m.set(r.id, Number(r.value));
@@ -27,24 +47,44 @@ function toCountMap(rows: Array<{ id: string; value: number }>): Map<string, num
 }
 
 /**
- * Serialize users into their public projection, with follower/following/post
- * counts and viewer-relative flags. Batched: one query per aggregate.
+ * Serialize a batch of users into their public projection: profile fields plus
+ * post / follower / following counts, plus viewer-relative flags when a viewer
+ * is given.
+ *
+ * Returns a Map keyed by user id rather than an array, so callers can look up
+ * exactly the users they need and in whatever order they want. Ids absent from
+ * the database simply won't appear in the map.
+ *
+ * @param viewerId  The signed-in user. When set, each result carries a `viewer`
+ *                  block (isFollowing / isSelf); when absent it's omitted, which
+ *                  is how the same function serves both public and authed routes.
  */
 export async function serializeUsers(
   userIds: string[],
   viewerId?: string,
 ): Promise<Map<string, PublicUser>> {
+  // Dedupe first: a feed page can mention the same author many times, and there's
+  // no point querying or building them twice.
   const ids = [...new Set(userIds)];
   const result = new Map<string, PublicUser>();
   if (ids.length === 0) return result;
 
+  // One query per aggregate, all fired in parallel. The alternative, a single
+  // join with several counts, fans out rows and double-counts; separate grouped
+  // counts keep each number honest.
   const [rows, postCounts, followerCounts, followingCounts, viewerFollows] = await Promise.all([
     db.select().from(users).where(inArray(users.id, ids)),
+    // Post count is top-level posts only: replies (parentId set) and deleted
+    // posts don't count toward the number shown on a profile.
     db
       .select({ id: posts.userId, value: count() })
       .from(posts)
       .where(and(inArray(posts.userId, ids), eq(posts.deleted, false), isNull(posts.parentId)))
       .groupBy(posts.userId),
+    // A follows row reads "followerId follows followingId". So a user's follower
+    // count is the rows where they're the followingId (people pointing at them),
+    // and their following count is the rows where they're the followerId. Easy
+    // to flip; the grouped key is what disambiguates the two queries below.
     db
       .select({ id: follows.followingId, value: count() })
       .from(follows)
@@ -55,6 +95,8 @@ export async function serializeUsers(
       .from(follows)
       .where(inArray(follows.followerId, ids))
       .groupBy(follows.followerId),
+    // Only worth a query when there's a viewer to relate to. With no viewer we
+    // resolve an empty array so the Promise.all shape stays the same either way.
     viewerId
       ? db
           .select({ id: follows.followingId })
@@ -92,8 +134,14 @@ export async function serializeUsers(
 }
 
 /**
- * Serialize posts by id into the full Post shape: author, counts, media, tags,
- * viewer flags, and one level of repost nesting. Order is the caller's concern.
+ * Serialize a batch of posts by id into the full Post shape: author, engagement
+ * counts, media, tags, viewer flags, and one level of repost nesting.
+ *
+ * Returns a Map keyed by id; the caller decides final ordering (see
+ * serializePostList). Missing ids are simply absent from the map.
+ *
+ * @param viewerId  When set, each post gets a `viewer` block (liked / reposted);
+ *                  the authors it loads are serialized with the same viewer.
  */
 export async function serializePosts(
   postIds: string[],
@@ -105,7 +153,10 @@ export async function serializePosts(
 
   const primaryRows = await db.select().from(posts).where(inArray(posts.id, ids));
 
-  // Pull in repost targets (one level) so we can nest them.
+  // A repost points at the post it shares via repostOf. We embed that target one
+  // level deep, so it has to be loaded too. Skip targets already in the request
+  // (filtered by !ids.includes) to avoid fetching the same row twice; the flat
+  // map below will already have them.
   const repostTargetIds = primaryRows
     .map((p) => p.repostOf)
     .filter((id): id is string => !!id && !ids.includes(id));
@@ -113,10 +164,17 @@ export async function serializePosts(
     ? await db.select().from(posts).where(inArray(posts.id, repostTargetIds))
     : [];
 
+  // From here on, work over primaries + their repost targets together, so a
+  // nested target gets its own author, counts, and media just like a top post.
   const allRows = [...primaryRows, ...targetRows];
   const allIds = allRows.map((p) => p.id);
   const authorIds = allRows.map((p) => p.userId);
 
+  const topicIds = [...new Set(allRows.map((p) => p.topicId).filter((id): id is string => !!id))];
+
+  // Every aggregate the Post shape needs, fanned out over the full id set in one
+  // parallel batch. serializeUsers is in here too, so authors load concurrently
+  // with the counts rather than after them.
   const [
     authors,
     likeCounts,
@@ -125,6 +183,7 @@ export async function serializePosts(
     viewCounts,
     mediaRows,
     tagRows,
+    topicRows,
     viewerLikes,
     viewerReposts,
   ] = await Promise.all([
@@ -139,6 +198,8 @@ export async function serializePosts(
       .from(reposts)
       .where(inArray(reposts.postId, allIds))
       .groupBy(reposts.postId),
+    // Replies are just posts whose parentId is one of ours. Group by parentId to
+    // get a reply count per post; deleted replies are excluded from the tally.
     db
       .select({ id: posts.parentId, value: count() })
       .from(posts)
@@ -155,6 +216,12 @@ export async function serializePosts(
       .from(postTags)
       .innerJoin(tags, eq(postTags.tagId, tags.id))
       .where(inArray(postTags.postId, allIds)),
+    topicIds.length
+      ? db.select().from(topics).where(inArray(topics.id, topicIds))
+      : Promise.resolve([] as Array<{ id: string; slug: string; name: string }>),
+    // Which of these posts the viewer has liked / reposted, for the filled-in
+    // heart and repost icons. One row per hit, so the result is just a presence
+    // set rather than a count. No viewer means no query, same as serializeUsers.
     viewerId
       ? db
           .select({ id: likes.postId })
@@ -171,10 +238,15 @@ export async function serializePosts(
 
   const likeMap = toCountMap(likeCounts);
   const repostMap = toCountMap(repostCounts);
+  // parentId is nullable in the schema, but every row here came from a non-null
+  // inArray match, so the cast to string is safe.
   const replyMap = toCountMap(replyCounts.map((r) => ({ id: r.id as string, value: r.value })));
   const viewMap = toCountMap(viewCounts);
   const likedSet = new Set(viewerLikes.map((r) => r.id));
   const repostedSet = new Set(viewerReposts.map((r) => r.id));
+
+  const topicMap = new Map<string, TopicRef>();
+  for (const t of topicRows) topicMap.set(t.id, { id: t.id, slug: t.slug, name: t.name });
 
   const mediaByPost = new Map<string, MediaItem[]>();
   for (const m of mediaRows) {
@@ -198,17 +270,23 @@ export async function serializePosts(
     tagsByPost.set(t.postId, list);
   }
 
-  // First build flat (un-nested) posts for everything we loaded.
+  // Two-pass assembly. First build every post flat, with repostOf left null, so
+  // both primaries and repost targets exist as finished objects in one map. The
+  // second pass can then point a repost at its already-built target instead of
+  // serializing it again or worrying about ordering.
   const flat = new Map<string, Post>();
   for (const p of allRows) {
     const author = authors.get(p.userId);
     if (!author) continue; // author row missing (shouldn't happen); skip defensively
     flat.set(p.id, {
       id: p.id,
+      // A deleted post keeps its row (so replies still thread) but its content is
+      // blanked: no body, no media. The deleted flag lets the client tombstone it.
       body: p.deleted ? null : p.body,
       author,
       parentId: p.parentId,
       repostOf: null,
+      topic: p.topicId ? (topicMap.get(p.topicId) ?? null) : null,
       edited: p.edited,
       deleted: p.deleted,
       createdAt: iso(p.createdAt),
@@ -227,7 +305,10 @@ export async function serializePosts(
     });
   }
 
-  // Attach nested repost targets and assemble the result for requested ids.
+  // Second pass: only the originally requested ids go in the result (a repost
+  // target pulled in for nesting isn't itself a result unless it was asked for).
+  // Attach each repost's target, forcing its own repostOf to null so nesting
+  // stops at one level and can't recurse into a chain of reposts-of-reposts.
   for (const p of primaryRows) {
     const post = flat.get(p.id);
     if (!post) continue;
@@ -241,7 +322,13 @@ export async function serializePosts(
   return result;
 }
 
-/** Convenience: serialize an ordered id list, preserving order, dropping misses. */
+/**
+ * Serialize an ordered list of post ids back into an ordered array of Posts.
+ *
+ * serializePosts returns an unordered Map, but feeds care about order, so this
+ * walks the original id list to restore it. Ids that didn't serialize (deleted
+ * between ranking and now, say) drop out rather than leaving holes in the array.
+ */
 export async function serializePostList(
   orderedIds: string[],
   viewerId?: string,

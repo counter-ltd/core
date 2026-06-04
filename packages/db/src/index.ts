@@ -1,3 +1,16 @@
+// Copyright (c) 2026 Counter (counter.ltd)
+// SPDX-License-Identifier: LicenseRef-CSL-1.0
+// Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+
+/**
+ * Public entry point for @counter/db. The API imports everything database from
+ * here: the schema tables and row types, the connection helpers, and the slice
+ * of drizzle-orm query builders it uses.
+ *
+ * Funnelling the drizzle-orm re-exports through this package means the API
+ * depends on @counter/db alone and never pins its own drizzle-orm version, so
+ * the query builders and the schema can't drift onto different releases.
+ */
 export * from './schema.ts';
 export { db, createDb, runWithDb, type Database, type DbInstance } from './client.ts';
 

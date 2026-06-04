@@ -1,4 +1,15 @@
+<!--
+  Copyright (c) 2026 Counter (counter.ltd)
+  SPDX-License-Identifier: LicenseRef-CSL-1.0
+  Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+-->
 <script lang="ts">
+  /**
+   * Sign-up page. Same shape as login: a form posting to a server action, with
+   * `form` carrying back the error and previously-entered values on failure.
+   * The length/pattern limits come from the shared USER config so the client
+   * validates against the exact same rules the server enforces.
+   */
   import { enhance } from '$app/forms';
   import { USER } from '@counter/config';
   let { form } = $props();
@@ -34,6 +45,8 @@
     </div>
     <div>
       <label for="password">Password <span class="faint">(min {USER.MIN_PASSWORD_LENGTH})</span></label>
+      <!-- Password is never echoed back from `form`, even on error, so a typed
+           password can't survive in the page's HTML -->
       <input id="password" name="password" type="password" minlength={USER.MIN_PASSWORD_LENGTH} autocomplete="new-password" required />
     </div>
     {#if form?.error}<p class="error">{form.error}</p>{/if}

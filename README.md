@@ -133,3 +133,18 @@ The design language is **liquid glass**, expressed entirely as CSS custom
 properties in [`apps/web/src/app.css`](apps/web/src/app.css). A theme is just an
 override map of those variables — validated server-side, never executed. Browse
 and apply community themes at [`/themes`](http://localhost:5173/themes).
+
+## License
+
+Counter is licensed under the **Counter Social License (CSL) v1.0** — see
+[`LICENSE.md`](LICENSE.md) for the full text. It is source-available, not a
+standard open source license: you may use, study, modify, and deploy it, but
+network deployments must publish their full source, every deployment must carry
+the "Built with Counter" attribution, and individual tracking, profit
+extraction, and closed forks are prohibited outright.
+
+Every source file carries the CSL notice header. Data collection is documented
+in full — every category, its purpose, and its retention — in
+[`documents/DATA-MODEL.md`](../documents/DATA-MODEL.md). The ranking algorithm
+and its complete change history are public at
+[`/algorithm`](http://localhost:5173/algorithm).

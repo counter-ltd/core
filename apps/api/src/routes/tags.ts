@@ -1,3 +1,13 @@
+// Copyright (c) 2026 Counter (counter.ltd)
+// SPDX-License-Identifier: LicenseRef-CSL-1.0
+// Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+
+/**
+ * Hashtag routes: what's trending right now, and the post feed for one tag.
+ *
+ * Tags live in their own table and link to posts through the postTags join, so
+ * both routes here hang off that join rather than scanning post bodies.
+ */
 import { Hono } from 'hono';
 import {
   db,
@@ -21,7 +31,12 @@ import type { AppEnv } from '../types.ts';
 
 export const tagRoutes = new Hono<AppEnv>();
 
-// Define /trending before /:tag so it isn't captured as a tag name.
+// Registered before /:tag, otherwise "trending" would be swallowed by the
+// /:tag param and treated as a hashtag named "trending".
+//
+// Trending = most-used tags over a rolling window. The interval is 168 hours
+// (a week) so a tag needs sustained recent use to rank, not a single old burst.
+// Deleted posts are joined out so they can't prop up a tag's count.
 tagRoutes.get('/trending', async (c) => {
   const rows = await db
     .select({ name: tags.name, value: count(postTags.postId) })
@@ -37,6 +52,8 @@ tagRoutes.get('/trending', async (c) => {
   return c.json({ data, nextCursor: null });
 });
 
+// Post feed for a single tag, newest-first and keyset-paginated. Strip a
+// leading '#' and lowercase so "#Coffee" and "coffee" hit the same stored name.
 tagRoutes.get('/:tag', async (c) => {
   const viewerId = c.get('userId');
   const name = c.req.param('tag').replace(/^#/, '').toLowerCase();
@@ -51,7 +68,9 @@ tagRoutes.get('/:tag', async (c) => {
     if (row) cursor = { createdAt: row.createdAt, id: row.id };
   }
 
-  // Posts carrying this tag, newest first.
+  // Subquery of post ids carrying this tag, used as an IN filter so the post
+  // scan stays on the posts table (where the sort keys live) instead of paging
+  // through the join.
   const taggedIds = db
     .select({ postId: postTags.postId })
     .from(postTags)

@@ -1,4 +1,14 @@
+<!--
+  Copyright (c) 2026 Counter (counter.ltd)
+  SPDX-License-Identifier: LicenseRef-CSL-1.0
+  Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+-->
 <script lang="ts">
+  /**
+   * The list of accounts following this user. Each row carries its own
+   * follow/unfollow button; `here` is handed to those rows so the action
+   * redirects back to this exact list instead of the actor's profile.
+   */
   import UserRow from '$lib/components/UserRow.svelte';
   let { data } = $props();
   const here = $derived(`/${data.username}/followers`);

@@ -1,4 +1,14 @@
+<!--
+  Copyright (c) 2026 Counter (counter.ltd)
+  SPDX-License-Identifier: LicenseRef-CSL-1.0
+  Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+-->
 <script lang="ts">
+  /**
+   * The list of accounts this user follows. Mirror image of the followers page:
+   * same UserRow list, same pagination. `here` keeps each row's follow action
+   * redirecting back to this list.
+   */
   import UserRow from '$lib/components/UserRow.svelte';
   let { data } = $props();
   const here = $derived(`/${data.username}/following`);
