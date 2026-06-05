@@ -44,6 +44,7 @@ import {
   reportQuerySchema,
   resolveReportSchema,
   auditQuerySchema,
+  adminPasswordResetSchema,
 } from '@counter/types';
 import type {
   AdminGroup,
@@ -64,6 +65,7 @@ import {
   type ReportTargetType,
   type ReportStatus,
 } from '@counter/config';
+import { loadServerEnv } from '@counter/config/env';
 import { body, query } from '../lib/validate.ts';
 import { errors } from '../lib/errors.ts';
 import { keysetWhere, paginate } from '../lib/cursor.ts';
@@ -71,6 +73,9 @@ import { requireUserId } from '../middleware/auth.ts';
 import { requirePermission } from '../middleware/admin.ts';
 import { recordAudit } from '../services/permissions.ts';
 import { revokeAllSessions } from '../lib/auth.ts';
+import { issuePasswordReset } from '../lib/passwordreset.ts';
+import { decryptField } from '../lib/crypto.ts';
+import { sendPasswordResetEmail } from '../lib/email.ts';
 import type { AppEnv } from '../types.ts';
 
 export const adminRoutes = new Hono<AppEnv>();
@@ -407,6 +412,57 @@ adminRoutes.post('/users/:id/unsuspend', requirePermission('users.suspend'), asy
     summary: `Lifted suspension on @${target.username}`,
   });
   return c.json({ ok: true, status: 'active' });
+});
+
+// Start a password reset on a user's behalf. Two deliveries: 'email' mails the
+// user the link, 'link' returns the URL in the response so the admin can hand it
+// over directly (for an account whose address is dead). Either way the token is
+// the same one-time, one-hour credential the public flow uses, and issuing it
+// voids any link the user already had. The link is never written to the audit
+// log, only the fact that a reset happened and how it was delivered.
+adminRoutes.post('/users/:id/password-reset', requirePermission('users.reset_password'), async (c) => {
+  const actorId = requireUserId(c);
+  const id = c.req.param('id');
+  const target = await db.query.users.findFirst({ where: eq(users.id, id) });
+  if (!target) throw errors.notFound('User not found');
+  const { delivery } = await body(c, adminPasswordResetSchema);
+
+  const token = await issuePasswordReset(id);
+  const webUrl = c.env.PUBLIC_WEB_URL ?? 'https://counter.ltd';
+  const link = `${webUrl}/reset-password?token=${token}`;
+
+  if (delivery === 'email') {
+    // No mail binding means email delivery can't work; say so plainly rather
+    // than reporting a success that never sends. The admin can fall back to the
+    // 'link' delivery, which needs no provider.
+    if (!c.env.EMAIL) {
+      throw errors.validation('Email delivery is not configured on this deployment. Generate a link instead.');
+    }
+    const env = loadServerEnv();
+    // target.email is ciphertext; the mailer needs the real address.
+    const email = await decryptField(target.email, env.MESSAGE_ENCRYPTION_KEY);
+    const name = target.displayName || target.username;
+    c.executionCtx.waitUntil(
+      sendPasswordResetEmail(c.env.EMAIL, email, name, link).catch(() => {
+        // Best effort: the admin can retry or switch to a link.
+      }),
+    );
+  }
+
+  await recordAudit(actorId, {
+    action: 'user.password_reset',
+    targetType: 'user',
+    targetId: id,
+    summary:
+      delivery === 'email'
+        ? `Emailed a password reset to @${target.username}`
+        : `Generated a password reset link for @${target.username}`,
+    metadata: { delivery },
+  });
+
+  // Echo the link back only when that's the chosen delivery; when we mailed it,
+  // there's no reason to expose the live credential in the response too.
+  return c.json({ ok: true, link: delivery === 'link' ? link : null });
 });
 
 // --- groups ---

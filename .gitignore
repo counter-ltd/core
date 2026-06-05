@@ -18,3 +18,7 @@ packages/db/drizzle/meta/_journal.bak
 .dev.vars
 .wrangler/
 worker-configuration.d.ts
+
+# AI tooling
+.claude/
+.codex/

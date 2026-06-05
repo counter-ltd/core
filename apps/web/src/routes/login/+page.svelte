@@ -45,6 +45,7 @@
     <div>
       <label for="password">Password</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required />
+      <a class="forgot" href="/forgot-password">Forgot password?</a>
     </div>
     {#if form?.error}<p class="error">{form.error}</p>{/if}
     <button class="btn btn-primary" type="submit">Log in</button>
@@ -78,6 +79,12 @@
   }
   .alt {
     margin-top: var(--space-4);
+  }
+  .forgot {
+    display: inline-block;
+    margin-top: var(--space-1);
+    font-size: 0.8rem;
+    color: var(--color-text-dim);
   }
   .divider {
     display: flex;

@@ -148,6 +148,11 @@ const serverEnvSchema = z.object({
   // falls back to a bland in-code default so /ask still answers.
   THING_TWO_SYSTEM_PROMPT: z.string().optional().default(''),
   THING_TWO_SYSTEM_PROMPT_2: z.string().optional().default(''),
+  // Thing One's system prompt, used by the on-Counter mention-reply bot. Same
+  // deal as Thing Two: private lore, loaded from split secrets, set by
+  // scripts/deploy-ask-prompt.sh from private/thing-personas.mjs.
+  THING_ONE_SYSTEM_PROMPT: z.string().optional().default(''),
+  THING_ONE_SYSTEM_PROMPT_2: z.string().optional().default(''),
   PUBLIC_API_URL: z.string().url().default('http://localhost:3000'),
   // API-specific port. We deliberately do NOT read a bare `PORT`: in a monorepo
   // dev setup the web framework also claims PORT, and some harnesses inject it,

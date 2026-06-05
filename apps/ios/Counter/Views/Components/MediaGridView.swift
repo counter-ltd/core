@@ -42,8 +42,13 @@ struct MediaGridView: View {
     /// One media cell: full available width, fixed height, cropped to a rounded box.
     private func cell(_ item: MediaItem, height: CGFloat) -> some View {
         mediaImage(item)
-            .frame(maxWidth: .infinity)
-            .frame(height: height)
+            // One frame, not two. A split `.frame(maxWidth:)` then `.frame(height:)`
+            // leaves the first frame proposing an unbounded height, so a
+            // `.scaledToFill()` image balloons to its natural size before the
+            // height frame can box it. `.clipped()` then trims the fill overflow;
+            // `.clipShape` alone masks the corners but won't fix the layout size.
+            .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
+            .clipped()
             .clipShape(RoundedRectangle(cornerRadius: CounterRadius.sm))
     }
 

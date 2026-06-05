@@ -61,6 +61,44 @@ export async function sendVerificationEmail(
 }
 
 /**
+ * Email a one-time link that lets the recipient set a new password.
+ *
+ * Sent both when a user asks to reset from the login page and when an admin
+ * triggers a reset from the panel; the copy works for either. The link is the
+ * credential, so the body stresses the short lifetime and the "ignore this if it
+ * wasn't you" out, since an unrequested reset email is the first sign someone is
+ * poking at the account.
+ *
+ * @param email  The Email Sending binding.
+ * @param to     The address to send the link to.
+ * @param name   What to greet them by (display name, falling back to username).
+ * @param link   The reset URL carrying the one-time token.
+ */
+export async function sendPasswordResetEmail(
+  email: EmailBinding,
+  to: string,
+  name: string,
+  link: string,
+): Promise<void> {
+  const text =
+    `Hi ${name},\n\n` +
+    `Someone asked to reset the password on your Counter account. Use this link ` +
+    `to choose a new one:\n\n${link}\n\n` +
+    `The link is good for one hour. If you didn't ask for this, you can ignore ` +
+    `this email; your password won't change and nothing will happen.\n\n— Counter`;
+  const safe = escapeHtml(name);
+  const html =
+    `<p>Hi ${safe},</p>` +
+    `<p>Someone asked to reset the password on your Counter account. Use this ` +
+    `link to choose a new one.</p>` +
+    `<p><a href="${link}">Reset my password</a></p>` +
+    `<p>The link is good for one hour. If you didn't ask for this, you can ignore ` +
+    `this email; your password won't change and nothing will happen.</p>` +
+    `<p>— Counter</p>`;
+  await email.send({ to, from: FROM, subject: 'Reset your Counter password', text, html });
+}
+
+/**
  * Email the user written confirmation that their account is gone.
  *
  * The license (Condition 6) requires confirming a deletion to the User in

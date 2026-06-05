@@ -21,6 +21,8 @@ import {
   logoutSchema,
   verifyEmailSchema,
   registerPublicKeySchema,
+  requestPasswordResetSchema,
+  confirmPasswordResetSchema,
 } from '@counter/types';
 import type { AuthResponse } from '@counter/types';
 import { body } from '../lib/validate.ts';
@@ -38,7 +40,16 @@ import {
   consumeEmailVerification,
   verificationCooldownRemaining,
 } from '../lib/verify.ts';
-import { sendVerificationEmail, sendDeletionConfirmation } from '../lib/email.ts';
+import {
+  issuePasswordReset,
+  consumePasswordReset,
+  resetCooldownRemaining,
+} from '../lib/passwordreset.ts';
+import {
+  sendVerificationEmail,
+  sendDeletionConfirmation,
+  sendPasswordResetEmail,
+} from '../lib/email.ts';
 import { requireAuth, requireUserId } from '../middleware/auth.ts';
 import { getPrivateUser, findUserByIdentifier } from '../services/userquery.ts';
 import type { AppEnv } from '../types.ts';
@@ -76,6 +87,46 @@ async function fireVerificationEmail(
       // Best effort: the user can always resend from settings.
     }),
   );
+}
+
+/**
+ * Issue a reset token and email the link, returning the raw token to the caller.
+ *
+ * Shared by the public "forgot password" flow and the admin "email a reset"
+ * action. The token is written synchronously (awaited) so its row anchors the
+ * cooldown before we respond; only the send itself is deferred and best-effort,
+ * so a mail hiccup never fails the request that triggered it. Returns the raw
+ * token so an admin path can also surface it as a copyable link, or null if the
+ * token couldn't be recorded.
+ *
+ * @param user  The target, carrying the already-decrypted plaintext address.
+ * @returns     The raw token, or null if issuing it failed.
+ */
+async function fireResetEmail(
+  c: Context<AppEnv>,
+  user: { id: string; email: string; displayName: string | null; username: string },
+): Promise<string | null> {
+  const webUrl = c.env.PUBLIC_WEB_URL ?? 'https://counter.ltd';
+  const name = user.displayName || user.username;
+  let token: string;
+  try {
+    token = await issuePasswordReset(user.id);
+  } catch {
+    return null; // Couldn't record the token; don't orphan a link.
+  }
+  // Guarded on the binding so local dev (no EMAIL bound) still issues the token,
+  // which keeps the admin "generate link" path working without a mail provider.
+  if (c.env.EMAIL) {
+    const email = c.env.EMAIL;
+    c.executionCtx.waitUntil(
+      sendPasswordResetEmail(email, user.email, name, `${webUrl}/reset-password?token=${token}`).catch(
+        () => {
+          // Best effort: the user can ask for another from the login page.
+        },
+      ),
+    );
+  }
+  return token;
 }
 
 /**
@@ -225,6 +276,44 @@ authRoutes.post('/verify/request', requireAuth, async (c) => {
   // row.email is ciphertext; the mailer needs the real address.
   const email = await decryptField(row.email, loadServerEnv().MESSAGE_ENCRYPTION_KEY);
   await fireVerificationEmail(c, { ...row, email });
+  return c.json({ ok: true });
+});
+
+// --- password reset ---
+
+// Start a password reset from the login page. Public: the only input is an
+// email. The response is the same {ok:true} whether or not the address matches
+// an account, so this can't be used to probe which emails are registered. A
+// real match (that isn't past its cooldown) gets a reset link mailed out of
+// band; everything else just returns ok and does nothing.
+authRoutes.post('/password-reset/request', async (c) => {
+  const input = await body(c, requestPasswordResetSchema);
+
+  // Email is encrypted at rest, so the lookup matches on its blind index, not
+  // the ciphertext column.
+  const lowered = input.email.toLowerCase();
+  const env = loadServerEnv();
+  const emailIndex = await blindIndex(lowered, env.BLIND_INDEX_KEY);
+  const row = await db.query.users.findFirst({ where: eq(users.emailIndex, emailIndex) });
+
+  // Send only for a real account that's off cooldown. The cooldown is what stops
+  // the endpoint being used to flood an inbox; staying silent about both the
+  // miss and the throttle is what keeps the response uniform.
+  if (row && (await resetCooldownRemaining(row.id)) === 0) {
+    await fireResetEmail(c, { ...row, email: lowered });
+  }
+  return c.json({ ok: true });
+});
+
+// Complete a reset: redeem the token from the email and set the new password.
+// Public, the token in the body is the credential, so it works even if the
+// session that requested it has long expired. Redeeming also drops every session
+// for the account, so the reset itself logs all devices out. A bad or expired
+// token returns a plain 400 without leaking whether it ever existed.
+authRoutes.post('/password-reset/confirm', async (c) => {
+  const input = await body(c, confirmPasswordResetSchema);
+  const ok = await consumePasswordReset(input.token, input.password);
+  if (!ok) throw errors.validation('That reset link is invalid or has expired.');
   return c.json({ ok: true });
 });
 

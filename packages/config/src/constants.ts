@@ -30,6 +30,12 @@ export const POST = {
   MAX_BODY_LENGTH: 5000,
 } as const;
 
+/** On-Counter bot (Thing One) reply tuning. */
+export const BOT = {
+  /** Min seconds between mention-replies from one bot to the same user. Spam + cost guard. */
+  MENTION_COOLDOWN_SECONDS: 30,
+} as const;
+
 /**
  * Media upload + storage limits, enforced server-side at POST /media.
  *
@@ -207,6 +213,7 @@ export const PERMISSION_KEYS = [
   'users.manage_groups',
   'users.ban',
   'users.suspend',
+  'users.reset_password',
   // Groups and the permissions they carry.
   'groups.view',
   'groups.manage',
@@ -254,6 +261,11 @@ export const PERMISSION_META: Record<
     category: 'Users',
     label: 'Suspend users',
     description: 'Temporarily block an account until a chosen time.',
+  },
+  'users.reset_password': {
+    category: 'Users',
+    label: 'Reset passwords',
+    description: "Email a user a reset link or generate one to hand over directly.",
   },
   'groups.view': {
     category: 'Groups',

@@ -46,6 +46,8 @@ import {
   recordView,
 } from '../services/content.ts';
 import { attachPostMedia, releasePostMedia } from '../services/media.ts';
+import { handleBotMentions } from '../services/bot-reply.ts';
+import { loadServerEnv } from '@counter/config/env';
 import type { AppEnv } from '../types.ts';
 
 export const postRoutes = new Hono<AppEnv>();
@@ -136,6 +138,16 @@ postRoutes.post('/', requireAuth, async (c) => {
   // body. Both derive from the post body, so they run after the row exists.
   await syncPostTags(created.id, input.body);
   await notifyMentions(input.body, userId, created.id);
+
+  // If the post mentions a bot account, let it reply in the background so the
+  // model call never delays this response.
+  c.executionCtx.waitUntil(
+    handleBotMentions(
+      { id: created.id, body: created.body ?? '', parentId: created.parentId, userId },
+      loadServerEnv(),
+      c.env.HYPERDRIVE?.connectionString ?? c.env.DATABASE_URL,
+    ),
+  );
 
   // A quote-repost notifies the original author. Re-fetch rather than trust the
   // earlier getPostOr404 result, since notifications need the author id.
@@ -406,6 +418,15 @@ postRoutes.post('/:id/replies', requireAuth, async (c) => {
   await syncPostTags(created.id, input.body);
   await notifyMentions(input.body, userId, created.id);
   await createNotification({ userId: parent.userId, type: 'reply', actorId: userId, postId: created.id });
+
+  // A reply that mentions a bot gets a bot reply too, in the background.
+  c.executionCtx.waitUntil(
+    handleBotMentions(
+      { id: created.id, body: created.body ?? '', parentId: created.parentId, userId },
+      loadServerEnv(),
+      c.env.HYPERDRIVE?.connectionString ?? c.env.DATABASE_URL,
+    ),
+  );
 
   return c.json(await serializeOne(created.id, userId), 201);
 });

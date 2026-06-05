@@ -128,4 +128,21 @@ export const actions: Actions = {
       }),
     );
   },
+
+  // Trigger a password reset for the row. `delivery` is 'email' (mail the user a
+  // link) or 'link' (get the URL back to hand over directly). The link delivery
+  // can't go through done(), since that drops the response body; we surface the
+  // returned URL on the page so the admin can copy it.
+  resetPassword: async ({ request, locals }) => {
+    if (!locals.accessToken) throw redirect(303, '/login');
+    const form = await request.formData();
+    const userId = String(form.get('userId'));
+    const delivery = String(form.get('delivery')) === 'link' ? 'link' : 'email';
+    const res = await apiFetch<{ ok: boolean; link: string | null }>(
+      `/admin/users/${userId}/password-reset`,
+      { method: 'POST', token: locals.accessToken, body: { delivery } },
+    );
+    if (!res.ok) return fail(res.status, { error: res.error?.message ?? 'Action failed.' });
+    return { saved: true, resetLink: res.data.link ?? null };
+  },
 };

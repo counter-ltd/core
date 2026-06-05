@@ -85,6 +85,14 @@ export const users = pgTable('users', {
   status: text('status').default('active').notNull(), // USER_STATUSES in @counter/config
   statusReason: text('status_reason'),
   suspendedUntil: timestamp('suspended_until', { withTimezone: true }),
+  // --- bot accounts ---
+  // Null for every normal (human) account. A non-null value marks this account
+  // as a server-designated bot and names its persona (e.g. 'thing_one'); the
+  // mention-reply pipeline keys off it. This is the bot allowlist: it is only
+  // ever set server-side (migration, seed, or direct SQL), never through any API
+  // surface, so an open-source client cannot promote an arbitrary account to a
+  // bot. Bot accounts also cannot be DMed (enforced at the message route).
+  botKind: text('bot_kind'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -235,6 +243,50 @@ export const emailVerifications = pgTable(
     // "the pending token(s) for this user", for reissuing and cleanup.
     index('email_verifications_user_id_idx').on(t.userId),
   ],
+);
+
+// Pending password-reset tokens, one row per outstanding request. Same shape as
+// email_verifications: we store only the SHA-256 of a high-entropy random token,
+// never the token itself, so a database leak can't be replayed to seize an
+// account. Redeeming sets a fresh password_hash and burns every token for the
+// user. TTL is short (one hour) because a reset link is a far more dangerous
+// credential than a verify link.
+export const passwordResets = pgTable(
+  'password_resets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      // Deleting a user drops any pending reset with them.
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Unique so a token hash maps to one request and lookups by token hit an index.
+    uniqueIndex('password_resets_token_hash_idx').on(t.tokenHash),
+    // "the pending token(s) for this user", for reissuing, cooldown, and cleanup.
+    index('password_resets_user_id_idx').on(t.userId),
+  ],
+);
+
+// Per-(user, bot) cooldown for mention replies. One row per pair, stamped to now
+// the moment a reply is decided (before the model call runs), so a burst of
+// mentions inside the window can't each fire a reply. Cheap abuse and cost guard;
+// BOT.MENTION_COOLDOWN_SECONDS in @counter/config sets the window.
+export const botCooldowns = pgTable(
+  'bot_cooldowns',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    botId: uuid('bot_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    lastRepliedAt: timestamp('last_replied_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.botId] })],
 );
 
 // Named spaces posts can belong to, addressed by a URL-friendly slug.
@@ -974,6 +1026,7 @@ export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Session = typeof sessions.$inferSelect;
 export type EmailVerification = typeof emailVerifications.$inferSelect;
+export type PasswordReset = typeof passwordResets.$inferSelect;
 export type Post = typeof posts.$inferSelect;
 export type NewPost = typeof posts.$inferInsert;
 export type Media = typeof media.$inferSelect;

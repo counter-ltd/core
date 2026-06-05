@@ -401,6 +401,10 @@ messageRoutes.post('/:username', async (c) => {
   const partner = await findUserByUsername(username);
   if (!partner) throw errors.notFound('User not found');
   if (partner.id === userId) throw errors.validation('Cannot message yourself');
+  // Bot accounts never accept DMs. Hard block here, before any messaging-privacy
+  // logic, so it can't be relaxed by a setting: you talk to a bot by mentioning
+  // it in a post, not in private.
+  if (partner.botKind) throw errors.forbidden('This account does not accept messages');
 
   // Check for an existing conversation so we can gate on its request status
   // before doing the heavier encryption work.

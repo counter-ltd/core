@@ -53,7 +53,13 @@
 </form>
 
 {#if form?.error}<p class="error">{form.error}</p>{/if}
-{#if form?.saved}<p class="ok">Done.</p>{/if}
+{#if form?.saved && !form?.resetLink}<p class="ok">Done.</p>{/if}
+{#if form?.resetLink}
+  <div class="reset-link card">
+    <p>Reset link generated. It's good for one hour; hand it over securely.</p>
+    <input type="text" readonly value={form.resetLink} aria-label="Password reset link" />
+  </div>
+{/if}
 
 {#if data.users.length === 0}
   <p class="faint">No users match.</p>
@@ -85,7 +91,7 @@
             </span>
           {/each}
         </div>
-        {#if can('users.manage_groups') || can('users.ban') || can('users.suspend')}
+        {#if can('users.manage_groups') || can('users.ban') || can('users.suspend') || can('users.reset_password')}
           <button class="btn mod-toggle" onclick={() => toggle(u.id)}>
             {openRow === u.id ? 'close' : 'manage'}
           </button>
@@ -136,6 +142,21 @@
                 <button class="btn btn-danger" type="submit">suspend</button>
               </form>
             {/if}
+          {/if}
+
+          {#if can('users.reset_password')}
+            <div class="line">
+              <form method="POST" action="?/resetPassword" use:enhance>
+                <input type="hidden" name="userId" value={u.id} />
+                <input type="hidden" name="delivery" value="email" />
+                <button class="btn" type="submit">email reset link</button>
+              </form>
+              <form method="POST" action="?/resetPassword" use:enhance>
+                <input type="hidden" name="userId" value={u.id} />
+                <input type="hidden" name="delivery" value="link" />
+                <button class="btn" type="submit">generate link</button>
+              </form>
+            </div>
           {/if}
         </div>
       {/if}
@@ -243,5 +264,22 @@
   .btn-danger {
     color: var(--color-danger);
     border-color: var(--color-danger);
+  }
+  .reset-link {
+    margin-bottom: var(--space-4);
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .reset-link p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--color-text-dim);
+  }
+  .reset-link input {
+    width: 100%;
+    font-family: var(--mono);
+    font-size: 0.8rem;
   }
 </style>
