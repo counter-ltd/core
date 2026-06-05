@@ -140,6 +140,14 @@ const serverEnvSchema = z.object({
   // normalizes them. Set via `wrangler secret put` in production.
   GOOGLE_SA_CLIENT_EMAIL: z.string().optional().default(''),
   GOOGLE_SA_PRIVATE_KEY: z.string().optional().default(''),
+  // Thing Two's system prompt for /ask. Kept out of the repo on purpose (the bot
+  // lore is private), so it is loaded from secrets rather than imported from code.
+  // Cloudflare caps a single text secret at ~5 kB and the prompt is larger, so it
+  // is split across two secrets and concatenated at use. Set both with
+  // scripts/deploy-ask-prompt.sh, which reads private/thing-personas.mjs. Empty
+  // falls back to a bland in-code default so /ask still answers.
+  THING_TWO_SYSTEM_PROMPT: z.string().optional().default(''),
+  THING_TWO_SYSTEM_PROMPT_2: z.string().optional().default(''),
   PUBLIC_API_URL: z.string().url().default('http://localhost:3000'),
   // API-specific port. We deliberately do NOT read a bare `PORT`: in a monorepo
   // dev setup the web framework also claims PORT, and some harnesses inject it,

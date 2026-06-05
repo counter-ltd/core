@@ -218,13 +218,34 @@ tunnelRoutes.post('/:username/invite', async (c) => {
   }
 
   // One invite at a time — block if a pending session already exists.
+  // Expire it first if it's been sitting longer than the invite window; the
+  // recipient's /pending route normally does this, but they may never have
+  // opened that thread.
   const existing = await db.query.tunnelSessions.findFirst({
     where: and(
       eq(tunnelSessions.conversationId, conv.id),
       eq(tunnelSessions.status, 'pending'),
     ),
   });
-  if (existing) throw errors.conflict('A pending Tunnel Talk invite already exists');
+  if (existing) {
+    const ageSeconds = (Date.now() - existing.createdAt.getTime()) / 1000;
+    if (ageSeconds > TUNNEL.INVITE_EXPIRES_SECONDS) {
+      await db
+        .update(tunnelSessions)
+        .set({ status: 'declined' })
+        .where(eq(tunnelSessions.id, existing.id));
+      await db.insert(messages).values({
+        conversationId: conv.id,
+        senderId: existing.initiatorId!,
+        body: '',
+        kind: 'tunnel_ended',
+        tunnelSessionId: existing.id,
+        read: true,
+      });
+    } else {
+      throw errors.conflict('A pending Tunnel Talk invite already exists');
+    }
+  }
 
   // Prevent stacking active sessions — one at a time per user.
   const activeSession = await db.query.tunnelSessions.findFirst({

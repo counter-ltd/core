@@ -39,9 +39,9 @@ const PORT = Number(process.env.PORT) || 8080;
 
 const VERTEX_BASE = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT}/locations/${LOCATION}/endpoints/openapi`;
 
-// Persona. Canonical source is THING_TWO_PERSONA in @counter/config, which
-// scripts/deploy-bot.sh reads and injects as SYSTEM_PROMPT at deploy time, so
-// this bot and the /ask command always speak the same way. The fallback below
+// Persona. Canonical source is private/thing-personas.mjs (kept out of the repo),
+// which scripts/deploy-bot.sh reads and injects as SYSTEM_PROMPT at deploy time,
+// so this bot and the /ask command always speak the same way. The fallback below
 // is only for a bare local run with no env set; it is not the source of truth.
 const SYSTEM_PROMPT =
   process.env.SYSTEM_PROMPT ||

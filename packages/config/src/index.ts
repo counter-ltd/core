@@ -11,3 +11,4 @@
  * needs the env loaders imports them directly from '@counter/config/env'.
  */
 export * from './constants.ts';
+export * from './blocklist.ts';

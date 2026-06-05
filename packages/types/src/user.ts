@@ -11,7 +11,7 @@
  * see (their email) are added by PrivateUser.
  */
 import { z } from 'zod';
-import { USER, PRESENCE, MESSAGING } from '@counter/config';
+import { USER, PRESENCE, MESSAGING, containsBlockedTerm } from '@counter/config';
 import type { PresenceVisibility, MessagingPrivacy, Permission, UserStatus } from '@counter/config';
 import type { TrustBadge } from './trust.ts';
 import type { GroupSummary } from './admin.ts';
@@ -26,6 +26,9 @@ export const usernameSchema = z
   .transform((s) => s.toLowerCase())
   .refine((s) => USER.USERNAME_PATTERN.test(s), {
     message: 'Username may contain only lowercase letters, digits and underscores',
+  })
+  .refine((s) => !containsBlockedTerm(s), {
+    message: 'Username contains a term that is not allowed',
   });
 
 /** Body for `POST /auth/register`. */
@@ -33,7 +36,11 @@ export const registerSchema = z.object({
   username: usernameSchema,
   email: z.string().email(),
   password: z.string().min(USER.MIN_PASSWORD_LENGTH).max(USER.MAX_PASSWORD_LENGTH),
-  displayName: z.string().max(USER.MAX_DISPLAY_NAME_LENGTH).optional(),
+  displayName: z
+    .string()
+    .max(USER.MAX_DISPLAY_NAME_LENGTH)
+    .refine((s) => !containsBlockedTerm(s), { message: 'Display name contains a term that is not allowed' })
+    .optional(),
 });
 export type RegisterInput = z.infer<typeof registerSchema>;
 
@@ -52,7 +59,11 @@ export type LoginInput = z.infer<typeof loginSchema>;
  */
 export const updateProfileSchema = z
   .object({
-    displayName: z.string().max(USER.MAX_DISPLAY_NAME_LENGTH).nullable(),
+    displayName: z
+      .string()
+      .max(USER.MAX_DISPLAY_NAME_LENGTH)
+      .refine((s) => !containsBlockedTerm(s), { message: 'Display name contains a term that is not allowed' })
+      .nullable(),
     bio: z.string().max(USER.MAX_BIO_LENGTH).nullable(),
     // The avatar is set by reference: the client uploads to POST /media and
     // sends the returned object id here, or null to clear it. The server

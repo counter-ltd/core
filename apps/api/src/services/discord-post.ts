@@ -22,7 +22,7 @@
  */
 
 import { db, posts, oauthAccounts, discordBotSubscriptions, users, eq, and } from '@counter/db';
-import { POST, THING_TWO_SYSTEM_PROMPT } from '@counter/config';
+import { POST } from '@counter/config';
 import type { DiscordShareMeta } from '@counter/types';
 import { syncPostTags, notifyMentions } from './content.ts';
 import { syncDiscordAvatar } from './discord-avatar.ts';
@@ -511,6 +511,11 @@ export interface AskEnv {
   // key. The private key may carry escaped "\n"; google-auth normalizes it.
   GOOGLE_SA_CLIENT_EMAIL: string;
   GOOGLE_SA_PRIVATE_KEY: string;
+  // The persona/lore prompt, loaded from secrets so it stays out of the repo and
+  // split in two to fit Cloudflare's per-secret size cap. Concatenated at use;
+  // both empty falls back to FALLBACK_SYSTEM_PROMPT.
+  THING_TWO_SYSTEM_PROMPT: string;
+  THING_TWO_SYSTEM_PROMPT_2: string;
 }
 
 /**
@@ -584,11 +589,13 @@ export function handleAskCommand(
 }
 
 /**
- * Persona plus Counter facts handed to the model so replies sound like the bot
- * and stay grounded. Shared with the @mention gateway bot via
- * {@link THING_TWO_SYSTEM_PROMPT}; edit it in @counter/config, not here.
+ * Bland stand-in used only when THING_TWO_SYSTEM_PROMPT is not set. The real
+ * persona and lore are private (loaded from a secret, never in the repo), so the
+ * fallback is deliberately characterless: /ask still answers, just without the
+ * voice. Set the secret with scripts/deploy-ask-prompt.sh to get the real one.
  */
-const ASK_SYSTEM_PROMPT = THING_TWO_SYSTEM_PROMPT;
+const FALLBACK_SYSTEM_PROMPT =
+  'You are Thing Two, a Discord bot for Counter. Be helpful and concise.';
 
 /**
  * Call the model, then edit the deferred response with its answer.
@@ -658,7 +665,11 @@ async function callChatModel(env: AskEnv, prompt: string): Promise<string> {
     body: JSON.stringify({
       model: env.OPENAI_MODEL,
       messages: [
-        { role: 'system', content: ASK_SYSTEM_PROMPT },
+        {
+          role: 'system',
+          // Rejoin the two secret halves; fall back when neither is configured.
+          content: env.THING_TWO_SYSTEM_PROMPT + env.THING_TWO_SYSTEM_PROMPT_2 || FALLBACK_SYSTEM_PROMPT,
+        },
         { role: 'user', content: prompt },
       ],
     }),
