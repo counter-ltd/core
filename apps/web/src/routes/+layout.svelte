@@ -12,9 +12,22 @@
   import '../app.css';
   import Nav from '$lib/components/Nav.svelte';
   import { applyTheme, setMode, THEME_STORAGE_KEY, MODE_STORAGE_KEY } from '$lib/theme';
+  import { startHeartbeat, stopHeartbeat } from '$lib/heartbeat';
   import type { ThemeVariables } from '@counter/types';
 
   let { data, children } = $props();
+
+  // Start or stop the presence heartbeat whenever the user's settings change.
+  // $effect runs client-only, so the interval never touches the SSR pass.
+  $effect(() => {
+    const ps = data.user?.presenceSettings;
+    if (ps?.onlineStatusEnabled || ps?.lastSeenEnabled) {
+      startHeartbeat(ps.heartbeatIntervalSeconds);
+    } else {
+      stopHeartbeat();
+    }
+    return stopHeartbeat;
+  });
 
   // A theme is just a bag of CSS variable overrides we keep per-device in
   // localStorage, so it never round-trips to the server. We re-apply it on the
@@ -41,20 +54,6 @@
   </aside>
   <main class="main">
     {@render children()}
-
-    <!--
-      "Built with Counter" attribution. The Counter Social License (Condition 5)
-      requires this on every deployment, visible to everyone without logging in,
-      linking back to the source. It lives in the layout so it rides along on
-      every page, and it's plain CSS variables so a custom theme restyles it but
-      can't make it disappear. Don't remove it: the license is the whole point.
-    -->
-    <footer class="attribution">
-      <a href="https://counter.ltd" target="_blank" rel="noopener">
-        <span class="mark" aria-hidden="true"></span>
-        <span>Built with Counter</span>
-      </a>
-    </footer>
   </main>
 </div>
 
@@ -71,33 +70,6 @@
   .main {
     min-width: 0;
     padding-bottom: 30vh;
-  }
-  /* Sits under the page content, separated by a hairline so it reads as chrome
-     rather than part of the page. Quiet by default, accent on hover, but never
-     so faint it disappears, the license forbids hiding it. */
-  .attribution {
-    margin-top: var(--space-5);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--color-border);
-  }
-  .attribution a {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-family: var(--mono);
-    font-size: 0.78rem;
-    letter-spacing: 0.04em;
-    color: var(--color-text-dim);
-  }
-  .attribution a:hover {
-    color: var(--color-accent);
-  }
-  /* Same filled cell as the nav brand mark, so the two read as one identity. */
-  .attribution .mark {
-    width: 12px;
-    height: 12px;
-    border-radius: 1px;
-    background: var(--color-accent);
   }
   @media (max-width: 800px) {
     .shell {

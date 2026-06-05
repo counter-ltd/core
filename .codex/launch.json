@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "counter",
+      "runtimeExecutable": "/Users/x/.bun/bin/bun",
+      "runtimeArgs": ["--cwd=/Users/x/Projects/counter-ltd/core", "run", "dev"],
+      "port": 5173
+    }
+  ]
+}

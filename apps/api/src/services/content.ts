@@ -16,11 +16,14 @@ import {
   tags,
   postTags,
   notifications,
+  notificationPreferences,
   postViews,
   eq,
+  and,
   inArray,
 } from '@counter/db';
 import type { NotificationType, ViewReferrer } from '@counter/config';
+import { deliverPush } from './apns.ts';
 
 // Hashtags allow any Unicode letter or number plus underscore, so tags in
 // non-Latin scripts work. The `u` flag is what makes \p{L}/\p{N} legal.
@@ -119,28 +122,61 @@ export async function notifyMentions(
 }
 
 /**
- * Insert one notification row.
+ * Insert one notification row, honouring the recipient's preferences, and push
+ * it to their devices.
  *
  * The single choke point for everything that creates a notification (likes,
- * reposts, follows, mentions), so the self-notify guard below only has to live
- * in one place.
+ * reposts, follows, mentions, messages), so the self-notify guard, the per-type
+ * mute check, and push delivery all live in one place instead of being repeated
+ * at every call site.
  *
- * @param userId   Who receives the notification.
- * @param actorId  Who triggered it.
+ * @param userId          Who receives the notification.
+ * @param actorId         Who triggered it.
+ * @param conversationId  Set for `message` so the client can open the thread.
  */
 export async function createNotification(params: {
   userId: string;
   type: NotificationType;
   actorId: string;
   postId?: string | null;
+  conversationId?: string | null;
 }): Promise<void> {
   // Nobody wants a ping for liking their own post or following nobody-but-self.
   if (params.userId === params.actorId) return;
-  await db.insert(notifications).values({
-    userId: params.userId,
+
+  // A mute row for (recipient, type) means they've turned this type off, so we
+  // create nothing at all: no inbox row, no push. Absence of a row is the
+  // default-on case, which is every user until they change a setting.
+  const muted = await db.query.notificationPreferences.findFirst({
+    where: and(
+      eq(notificationPreferences.userId, params.userId),
+      eq(notificationPreferences.type, params.type),
+    ),
+  });
+  if (muted) return;
+
+  const [created] = await db
+    .insert(notifications)
+    .values({
+      userId: params.userId,
+      type: params.type,
+      actorId: params.actorId,
+      postId: params.postId ?? null,
+      conversationId: params.conversationId ?? null,
+    })
+    .returning({ id: notifications.id });
+  if (!created) return;
+
+  // Push is a courtesy copy of the row we just stored. deliverPush no-ops when
+  // APNs isn't configured or the user has no devices, so this is safe to await
+  // unconditionally. We await rather than background it because the request's DB
+  // connection is torn down right after the response on Workers.
+  await deliverPush(params.userId, {
+    notificationId: created.id,
     type: params.type,
     actorId: params.actorId,
     postId: params.postId ?? null,
+    conversationId: params.conversationId ?? null,
   });
 }
 

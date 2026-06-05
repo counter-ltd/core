@@ -24,6 +24,7 @@ import {
   and,
   desc,
   asc,
+  isNull,
 } from '@counter/db';
 import {
   createPostSchema,
@@ -289,6 +290,10 @@ postRoutes.get('/:id/likes', async (c) => {
 
 // Plain repost (no quote body). Same idempotent insert + notify-once pattern as
 // likes. The quote-repost path lives in the create handler via `repostOf`.
+//
+// We also insert a posts row (body=null, repostOf=id) so the repost shows up
+// on the reposter's profile. The schema comment on posts.body notes this is
+// the intended design for pure reposts.
 postRoutes.post('/:id/repost', requireAuth, async (c) => {
   const userId = requireUserId(c);
   const id = c.req.param('id');
@@ -300,6 +305,7 @@ postRoutes.post('/:id/repost', requireAuth, async (c) => {
     .onConflictDoNothing()
     .returning();
   if (inserted.length > 0) {
+    await db.insert(posts).values({ userId, repostOf: id });
     await createNotification({ userId: row.userId, type: 'repost', actorId: userId, postId: id });
   }
   return c.json({ ok: true, reposted: true });
@@ -310,6 +316,11 @@ postRoutes.delete('/:id/repost', requireAuth, async (c) => {
   const userId = requireUserId(c);
   const id = c.req.param('id');
   await db.delete(reposts).where(and(eq(reposts.userId, userId), eq(reposts.postId, id)));
+  // Remove the bodyless posts row created above. The isNull guard prevents
+  // accidentally deleting a quote-repost of the same post (those always have a body).
+  await db
+    .delete(posts)
+    .where(and(eq(posts.userId, userId), eq(posts.repostOf, id), isNull(posts.body)));
   return c.json({ ok: true, reposted: false });
 });
 

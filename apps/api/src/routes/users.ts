@@ -19,13 +19,15 @@ import {
   users,
   posts,
   follows,
+  deviceKeys,
   eq,
   and,
   desc,
   inArray,
 } from '@counter/db';
-import { updateProfileSchema, paginationQuerySchema } from '@counter/types';
-import type { Page, PublicUser, Post } from '@counter/types';
+import { updateProfileSchema, paginationQuerySchema, presenceSettingsSchema } from '@counter/types';
+import type { Page, PublicUser, Post, PresenceSettings } from '@counter/types';
+import type { PresenceVisibility } from '@counter/config';
 import { body, query } from '../lib/validate.ts';
 import { errors } from '../lib/errors.ts';
 import { keysetWhere, paginate } from '../lib/cursor.ts';
@@ -66,6 +68,49 @@ userRoutes.patch('/me', requireAuth, async (c) => {
   return c.json(await getPrivateUser(userId));
 });
 
+// --- presence settings ---
+
+// Read the caller's own presence configuration.
+userRoutes.get('/me/presence', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  const row = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  if (!row) throw errors.notFound('User not found');
+  return c.json<PresenceSettings>({
+    onlineStatusEnabled: row.onlineStatusEnabled,
+    onlineStatusVisibility: row.onlineStatusVisibility as PresenceVisibility,
+    lastSeenEnabled: row.lastSeenEnabled,
+    lastSeenVisibility: row.lastSeenVisibility as PresenceVisibility,
+    heartbeatIntervalSeconds: row.heartbeatIntervalSeconds,
+  });
+});
+
+// Partial presence update. Same `'x' in input` pattern as PATCH /me so
+// a caller can change one field without accidentally resetting the others.
+userRoutes.put('/me/presence', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  const input = await body(c, presenceSettingsSchema);
+
+  const patch: Record<string, unknown> = { updatedAt: new Date() };
+  if ('onlineStatusEnabled' in input) patch.onlineStatusEnabled = input.onlineStatusEnabled;
+  if ('onlineStatusVisibility' in input) patch.onlineStatusVisibility = input.onlineStatusVisibility;
+  if ('lastSeenEnabled' in input) patch.lastSeenEnabled = input.lastSeenEnabled;
+  if ('lastSeenVisibility' in input) patch.lastSeenVisibility = input.lastSeenVisibility;
+  if ('heartbeatIntervalSeconds' in input) patch.heartbeatIntervalSeconds = input.heartbeatIntervalSeconds;
+
+  await db.update(users).set(patch).where(eq(users.id, userId));
+  return c.json({ ok: true });
+});
+
+// Lightweight ping that records "the user is active right now". Called
+// periodically by clients while the user is online. Always updates lastSeenAt
+// regardless of enabled flags because the flags only control display, not
+// collection, and the user may re-enable a feature mid-session.
+userRoutes.post('/me/heartbeat', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  await db.update(users).set({ lastSeenAt: new Date() }).where(eq(users.id, userId));
+  return c.json({ ok: true });
+});
+
 // --- public profile ---
 
 // Anyone's public profile by username. The optional viewer id lets the response
@@ -73,6 +118,20 @@ userRoutes.patch('/me', requireAuth, async (c) => {
 userRoutes.get('/:username', async (c) => {
   const viewerId = c.get('userId');
   return c.json(await getPublicUser(c.req.param('username'), viewerId));
+});
+
+// All registered device keys for a user. Senders fetch this to build the
+// encryption target list: one v2 copy per device key, wrapped in v3 format.
+// Returns an empty array (not 404) when the user exists but has no keys yet,
+// so callers can distinguish "not found" from "not set up for E2EE".
+userRoutes.get('/:username/public-key', async (c) => {
+  const row = await findUserByUsername(c.req.param('username'));
+  if (!row) throw errors.notFound('User not found');
+  const keys = await db
+    .select({ deviceId: deviceKeys.deviceId, publicKey: deviceKeys.publicKey })
+    .from(deviceKeys)
+    .where(eq(deviceKeys.userId, row.id));
+  return c.json({ keys });
 });
 
 // A user's own posts, newest first, keyset-paginated. The `after` cursor is a

@@ -15,6 +15,15 @@
   import { compact } from '$lib/format';
   let { data } = $props();
 
+  /** Format an ISO timestamp as a short relative "X ago" string. */
+  function timeAgo(iso: string): string {
+    const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  }
+
   const p = $derived(data.profile);
   // `viewer` is only populated when someone's logged in, so default both flags
   // to false for anonymous visitors rather than letting them read as undefined.
@@ -71,6 +80,7 @@
           <input type="hidden" name="redirectTo" value={here} />
           <button class="btn {isFollowing ? '' : 'btn-primary'}" onclick={toggleFollow}>{isFollowing ? 'Following' : 'Follow'}</button>
         </form>
+        <a class="btn" href="/messages/{p.username}">Message</a>
       {:else}
         <a class="btn btn-primary" href="/login">Follow</a>
       {/if}
@@ -80,8 +90,14 @@
   <h1 class="name">
     {p.displayName || p.username}
     {#if p.verified}<span class="verified" title="verified">✦</span>{/if}
+    {#if p.presence?.isOnline}<span class="online-dot" title="Online now" aria-label="Online"></span>{/if}
   </h1>
-  <p class="handle faint">@{p.username}</p>
+  <p class="handle faint">
+    @{p.username}
+    {#if !p.presence?.isOnline && p.presence?.lastSeenAt}
+      <span class="last-seen">· {timeAgo(p.presence.lastSeenAt)}</span>
+    {/if}
+  </p>
   {#if p.bio}<p class="bio">{p.bio}</p>{/if}
 
   <!-- Verified trust badges: each is one fact this person proved (a confirmed
@@ -139,6 +155,28 @@
   }
   .handle {
     margin: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .online-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-repost);
+    vertical-align: middle;
+    margin-left: 4px;
+    /* Subtle pulse so it reads as "live" at a glance. */
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
+  .last-seen {
+    font-size: 0.85em;
   }
   .bio {
     margin: var(--space-3) 0 0;

@@ -42,6 +42,15 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   verified: boolean('verified').default(false).notNull(),
+  // --- presence ---
+  // Both features default off. Visibility controls who can see each one.
+  onlineStatusEnabled: boolean('online_status_enabled').default(false).notNull(),
+  onlineStatusVisibility: text('online_status_visibility').default('everyone').notNull(),
+  lastSeenEnabled: boolean('last_seen_enabled').default(false).notNull(),
+  lastSeenVisibility: text('last_seen_visibility').default('everyone').notNull(),
+  // Updated by POST /users/me/heartbeat while online status or last seen is on.
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+  heartbeatIntervalSeconds: integer('heartbeat_interval_seconds').default(300).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -309,12 +318,62 @@ export const notifications = pgTable(
     // The post involved, if any (a follow has none). set null keeps the
     // notification around even after the post goes away.
     postId: uuid('post_id').references(() => posts.id, { onDelete: 'set null' }),
+    // The conversation involved, set only for `message` notifications so the
+    // client can open the right thread. Cascade: if the conversation is gone
+    // (account deleted), the notification has nowhere to point and goes too.
+    conversationId: uuid('conversation_id').references(() => conversations.id, {
+      onDelete: 'cascade',
+    }),
     read: boolean('read').default(false).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   // Composite (user, createdAt) so a user's notifications come back already
   // ordered newest-first without a separate sort step.
   (t) => [index('notifications_user_id_idx').on(t.userId, t.createdAt)],
+);
+
+// A user's muted notification types. Presence of a row means "don't send me
+// this type", on any channel. Absence means on, so every account defaults to
+// all-on with no backfill and no per-user row to create up front.
+export const notificationPreferences = pgTable(
+  'notification_preferences',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(), // a NOTIFICATION_TYPES value; the row's presence = muted
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  // PK (user, type) keeps each mute unique and answers "what has this user
+  // muted" in one indexed hit, which is the only way we read this table.
+  (t) => [primaryKey({ columns: [t.userId, t.type] })],
+);
+
+// Registered push devices, one row per APNs token. We store only the opaque
+// token Apple gives us, never anything that describes the device or the person.
+// Deleting the user takes their devices with them.
+export const devices = pgTable(
+  'devices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    platform: text('platform').notNull(), // see DEVICE_PLATFORMS in @counter/config ('ios')
+    token: text('token').notNull().unique(),
+    // User-supplied label so multiple devices are distinguishable. Null for
+    // devices registered before this column was added.
+    name: text('name'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    // Bumped each time the same token re-registers, so stale devices are spottable.
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Unique token so re-registering upserts one row; a device can't double up.
+    uniqueIndex('devices_token_idx').on(t.token),
+    // Fan-out lookup: every device for a user when delivering a push.
+    index('devices_user_id_idx').on(t.userId),
+  ],
 );
 
 /**
@@ -404,6 +463,101 @@ export const algorithmChangelog = pgTable('algorithm_changelog', {
   deployedAt: timestamp('deployed_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+// Per-device E2EE key pairs. One row per (user, device) pair. A user can have
+// multiple registered devices, each with its own P-256 key pair; senders
+// encrypt a separate copy of each message for every device so all of them can
+// decrypt. device_id is a stable UUID generated on the device and stored in
+// localStorage (web) or UserDefaults (iOS) alongside the private key.
+export const deviceKeys = pgTable(
+  'device_keys',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // Opaque identifier chosen by the client; stable across sessions so a
+    // device that re-registers doesn't duplicate its key row.
+    deviceId: text('device_id').notNull(),
+    // SPKI base64 P-256 public key. The private half never leaves the device.
+    publicKey: text('public_key').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Unique per (user, device) so re-registering the same device upserts
+    // rather than inserting a duplicate row.
+    uniqueIndex('device_keys_user_device_idx').on(t.userId, t.deviceId),
+    // Lookup "all keys for this user" when building the encryption target list.
+    index('device_keys_user_id_idx').on(t.userId),
+  ],
+);
+
+// Direct messages: one conversation row per pair of users, one message row per
+// message. Participants are stored in lexicographic order (A < B UUID string
+// comparison) so the unique index on (participantA, participantB) covers both
+// directions and there can never be two conversations between the same pair.
+export const conversations = pgTable(
+  'conversations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // App code sorts [userA, userB] before inserting, so participantA is always
+    // the lexicographically smaller UUID. That invariant is what makes the unique
+    // index below enforce one-row-per-pair rather than two.
+    participantA: uuid('participant_a')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    participantB: uuid('participant_b')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // Updated on every new message so the inbox can sort by most recent activity.
+    lastMessageAt: timestamp('last_message_at', { withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    // Per-user clear: messages older than this timestamp are hidden for that participant.
+    // Null means the user has never cleared.
+    participantAClearedAt: timestamp('participant_a_cleared_at', { withTimezone: true }),
+    participantBClearedAt: timestamp('participant_b_cleared_at', { withTimezone: true }),
+    // Per-user delete: conversation is hidden from that participant's inbox.
+    // The row stays so the other party still sees the thread.
+    participantADeletedAt: timestamp('participant_a_deleted_at', { withTimezone: true }),
+    participantBDeletedAt: timestamp('participant_b_deleted_at', { withTimezone: true }),
+  },
+  (t) => [
+    // The uniqueness guarantee: one conversation per ordered pair.
+    uniqueIndex('conversations_participants_idx').on(t.participantA, t.participantB),
+    // Inbox queries: "all conversations for user X sorted by activity", served
+    // from each side's index without touching the other.
+    index('conversations_participant_a_idx').on(t.participantA, t.lastMessageAt),
+    index('conversations_participant_b_idx').on(t.participantB, t.lastMessageAt),
+  ],
+);
+
+// Individual messages within a conversation. `read` starts false and flips when
+// the recipient views the thread; the app only marks messages from the partner
+// as read, never messages the viewer sent themselves.
+export const messages = pgTable(
+  'messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    senderId: uuid('sender_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    body: text('body').notNull(),
+    // 'message' for normal messages; 'screenshot' for transcript entries added
+    // when the viewer screenshots the thread.
+    kind: text('kind').notNull().default('message'),
+    read: boolean('read').default(false).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Thread view: all messages in a conversation, ordered by time.
+    index('messages_conversation_id_idx').on(t.conversationId, t.createdAt),
+    // Unread-count queries: filter by (conversation, read=false) without a scan.
+    index('messages_unread_idx').on(t.conversationId, t.read),
+  ],
+);
+
 // Row type helpers the API builds queries and responses around. $inferSelect is
 // a full row; $inferInsert is what you need to insert (defaults optional).
 // Insert types only exist for tables the app actually inserts into by hand.
@@ -415,6 +569,9 @@ export type Post = typeof posts.$inferSelect;
 export type NewPost = typeof posts.$inferInsert;
 export type Media = typeof media.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
+export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+export type Device = typeof devices.$inferSelect;
+export type NewDevice = typeof devices.$inferInsert;
 export type Theme = typeof themes.$inferSelect;
 export type Integration = typeof integrations.$inferSelect;
 export type ProfileTheme = typeof profileThemes.$inferSelect;
@@ -422,3 +579,9 @@ export type AlgorithmChangelog = typeof algorithmChangelog.$inferSelect;
 export type Topic = typeof topics.$inferSelect;
 export type NewTopic = typeof topics.$inferInsert;
 export type TopicMember = typeof topicMembers.$inferSelect;
+export type DeviceKey = typeof deviceKeys.$inferSelect;
+export type NewDeviceKey = typeof deviceKeys.$inferInsert;
+export type Conversation = typeof conversations.$inferSelect;
+export type NewConversation = typeof conversations.$inferInsert;
+export type Message = typeof messages.$inferSelect;
+export type NewMessage = typeof messages.$inferInsert;

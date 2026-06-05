@@ -23,7 +23,7 @@ import type { TokenPair } from '@counter/types';
 export const ACCESS_COOKIE = 'counter_access';
 export const ACCOUNTS_COOKIE = 'counter_accounts';
 
-/** A signed-in account as stored in the accounts cookie — server-only. */
+/** A signed-in account as stored in the accounts cookie. Server-only. */
 export type StoredAccount = {
   userId: string;
   username: string;
@@ -40,7 +40,7 @@ export type StoredAccount = {
 export type SafeAccount = Omit<StoredAccount, 'refreshToken'>;
 
 // Shared attributes for both session cookies. `sameSite: 'lax'` is the CSRF
-// backstop — blocks the cookies on cross-site POSTs while still sending them
+// backstop, blocking the cookies on cross-site POSTs while still sending them
 // on top-level navigations. `httpOnly` keeps them out of JS entirely.
 const base = {
   path: '/',

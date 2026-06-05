@@ -2,13 +2,6 @@
 // SPDX-License-Identifier: LicenseRef-CSL-1.0
 // Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
 
-import { loadServerEnv } from '@counter/config/env';
-import { createDb, runWithDb } from '@counter/db';
-import { createApp } from './app.ts';
-import type { WorkerBindings } from './types.ts';
-
-const app = createApp();
-
 /**
  * Cloudflare Workers entry point for the API.
  *
@@ -20,6 +13,13 @@ const app = createApp();
  * The same Hono app (createApp) runs locally under Bun; only this request
  * plumbing is Workers-specific.
  */
+import { loadServerEnv } from '@counter/config/env';
+import { createDb, runWithDb } from '@counter/db';
+import { createApp } from './app.ts';
+import type { WorkerBindings } from './types.ts';
+
+const app = createApp();
+
 export default {
   async fetch(request: Request, env: WorkerBindings, ctx: ExecutionContext): Promise<Response> {
     // loadServerEnv caches after the first call. The bindings are identical for

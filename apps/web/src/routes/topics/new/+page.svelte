@@ -1,4 +1,16 @@
+<!--
+  Copyright (c) 2026 Counter (counter.ltd)
+  SPDX-License-Identifier: LicenseRef-CSL-1.0
+  Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
+-->
 <script lang="ts">
+  /**
+   * The "create a topic" form at /topics/new.
+   *
+   * Submits through `use:enhance` so a failed create comes back as `form` data
+   * over fetch instead of a full reload. That keeps the URL clean and dodges the
+   * browser's resubmit-on-refresh dialog.
+   */
   import { enhance } from '$app/forms';
   import type { ActionData } from './$types';
   let { form }: { form: ActionData } = $props();

@@ -5,7 +5,7 @@
 /**
  * The "create a topic" form at /topics/new.
  *
- * The load just guards the route — only signed-in users can create topics, so
+ * The load just guards the route: only signed-in users can create topics, so
  * logged-out visitors get bounced to login. The form action does the real work:
  * slugify, validate via the API, and redirect to the new topic on success.
  */

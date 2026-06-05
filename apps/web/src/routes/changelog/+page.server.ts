@@ -52,8 +52,17 @@ function parse(md: string): Release[] {
 
     for (const line of lines.slice(1)) {
       if (line.startsWith('### ')) {
-        current = { name: line.slice(4).trim(), items: [] };
-        categories.push(current);
+        const name = line.slice(4).trim();
+        // Reuse an existing category with this name so duplicate `### Added`
+        // sections in one release (common when multiple features land at once)
+        // get merged rather than creating two entries with the same key.
+        const existing = categories.find((c) => c.name === name);
+        if (existing) {
+          current = existing;
+        } else {
+          current = { name, items: [] };
+          categories.push(current);
+        }
       } else if (/^[-*] /.test(line) && current) {
         // Only attach bullets once we've seen a category heading; loose
         // bullets before the first `###` have nowhere to go and are ignored.

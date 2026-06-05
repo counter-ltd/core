@@ -8,19 +8,75 @@
       "when": 1780529252702,
       "tag": "0000_smiling_wallflower",
       "breakpoints": true
-    }
-    ,{
+    },
+    {
       "idx": 1,
       "version": "7",
       "when": 1780600000000,
       "tag": "0001_topics",
       "breakpoints": true
-    }
-    ,{
+    },
+    {
       "idx": 2,
       "version": "7",
       "when": 1780610000000,
       "tag": "0002_email_verifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1780700000000,
+      "tag": "0003_messages",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780800000000,
+      "tag": "0004_notifications_prefs",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780900000000,
+      "tag": "0005_e2ee_public_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780950000000,
+      "tag": "0006_device_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780960000000,
+      "tag": "0007_device_names",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780970000000,
+      "tag": "0008_message_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1780980000000,
+      "tag": "0009_presence",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780990000000,
+      "tag": "0010_conversation_per_user_actions",
       "breakpoints": true
     }
   ]

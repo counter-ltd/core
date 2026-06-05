@@ -1,0 +1,747 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AABBCC000000000000000201 /* CounterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000101 /* CounterApp.swift */; };
+		AABBCC000000000000000202 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000102 /* AppEnvironment.swift */; };
+		AABBCC000000000000000203 /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000103 /* APIError.swift */; };
+		AABBCC000000000000000204 /* Endpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000104 /* Endpoint.swift */; };
+		AABBCC000000000000000205 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000105 /* APIClient.swift */; };
+		AABBCC000000000000000206 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000106 /* KeychainStore.swift */; };
+		AABBCC000000000000000207 /* TokenRefreshActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000107 /* TokenRefreshActor.swift */; };
+		AABBCC000000000000000208 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000108 /* AuthStore.swift */; };
+		AABBCC000000000000000209 /* AccountStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000109 /* AccountStore.swift */; };
+		AABBCC00000000000000020A /* Pagination.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000010A /* Pagination.swift */; };
+		AABBCC00000000000000020B /* Auth.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000010B /* Auth.swift */; };
+		AABBCC00000000000000020C /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000010C /* User.swift */; };
+		AABBCC00000000000000020D /* Post.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000010D /* Post.swift */; };
+		AABBCC00000000000000020E /* Message.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000010E /* Message.swift */; };
+		AABBCC00000000000000020F /* AppNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000010F /* AppNotification.swift */; };
+		AABBCC000000000000000210 /* Topic.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000110 /* Topic.swift */; };
+		AABBCC000000000000000211 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000111 /* AuthViewModel.swift */; };
+		AABBCC000000000000000212 /* FeedViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000112 /* FeedViewModel.swift */; };
+		AABBCC000000000000000213 /* ThreadViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000113 /* ThreadViewModel.swift */; };
+		AABBCC000000000000000214 /* ProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000114 /* ProfileViewModel.swift */; };
+		AABBCC000000000000000215 /* NotificationsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000115 /* NotificationsViewModel.swift */; };
+		AABBCC000000000000000216 /* MessagesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000116 /* MessagesViewModel.swift */; };
+		AABBCC000000000000000217 /* ConversationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000117 /* ConversationViewModel.swift */; };
+		AABBCC000000000000000218 /* SearchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000118 /* SearchViewModel.swift */; };
+		AABBCC000000000000000219 /* ComposeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000119 /* ComposeViewModel.swift */; };
+		AABBCC00000000000000021A /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000011A /* RootView.swift */; };
+		AABBCC00000000000000021B /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000011B /* MainTabView.swift */; };
+		AABBCC00000000000000021C /* AuthFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000011C /* AuthFlowView.swift */; };
+		AABBCC00000000000000021D /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000011D /* LoginView.swift */; };
+		AABBCC00000000000000021E /* RegisterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000011E /* RegisterView.swift */; };
+		AABBCC00000000000000021F /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000011F /* FeedView.swift */; };
+		AABBCC000000000000000220 /* PostRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000120 /* PostRowView.swift */; };
+		AABBCC000000000000000221 /* ThreadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000121 /* ThreadView.swift */; };
+		AABBCC000000000000000222 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000122 /* ProfileView.swift */; };
+		AABBCC000000000000000223 /* ProfileHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000123 /* ProfileHeaderView.swift */; };
+		AABBCC000000000000000224 /* FollowListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000124 /* FollowListView.swift */; };
+		AABBCC000000000000000225 /* MessagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000125 /* MessagesView.swift */; };
+		AABBCC000000000000000226 /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000126 /* ConversationView.swift */; };
+		AABBCC000000000000000227 /* ConversationRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000127 /* ConversationRowView.swift */; };
+		AABBCC000000000000000228 /* NotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000128 /* NotificationsView.swift */; };
+		AABBCC000000000000000229 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000129 /* SearchView.swift */; };
+		AABBCC00000000000000022A /* ComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000012A /* ComposeView.swift */; };
+		AABBCC00000000000000022B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000012B /* SettingsView.swift */; };
+		AABBCC00000000000000022C /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000012C /* AvatarView.swift */; };
+		AABBCC00000000000000022D /* PostActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000012D /* PostActionBar.swift */; };
+		AABBCC00000000000000022E /* QuotedPostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000012E /* QuotedPostView.swift */; };
+		AABBCC00000000000000022F /* MediaGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000012F /* MediaGridView.swift */; };
+		AABBCC000000000000000230 /* UserRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000130 /* UserRowView.swift */; };
+		AABBCC000000000000000231 /* NotificationRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000131 /* NotificationRowView.swift */; };
+		AABBCC000000000000000232 /* RelativeTimeText.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000132 /* RelativeTimeText.swift */; };
+		AABBCC000000000000000233 /* CounterTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000133 /* CounterTheme.swift */; };
+		AABBCC000000000000000234 /* ViewModifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000134 /* ViewModifiers.swift */; };
+		AABBCC000000000000000235 /* DateFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000135 /* DateFormatting.swift */; };
+		AABBCC000000000000000236 /* TextProcessing.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000136 /* TextProcessing.swift */; };
+		AABBCC000000000000000237 /* PushNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000137 /* PushNotifications.swift */; };
+		AABBCC000000000000000238 /* NotificationPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000138 /* NotificationPreferences.swift */; };
+		AABBCC000000000000000239 /* NotificationSettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000139 /* NotificationSettingsViewModel.swift */; };
+		AABBCC00000000000000023A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000013A /* Theme.swift */; };
+		AABBCC000000000000000240 /* E2EEService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000023F /* E2EEService.swift */; };
+		AABBCC000000000000000243 /* DevicesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000241 /* DevicesViewModel.swift */; };
+		AABBCC000000000000000244 /* DevicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000242 /* DevicesView.swift */; };
+		AABBCC000000000000000248 /* PresenceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000245 /* PresenceSettings.swift */; };
+		AABBCC000000000000000249 /* PresenceSettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000246 /* PresenceSettingsViewModel.swift */; };
+		AABBCC00000000000000024A /* PresenceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000247 /* PresenceSettingsView.swift */; };
+		AABBCC00000000000000023B /* CounterPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000013B /* CounterPalette.swift */; };
+		AABBCC00000000000000023C /* ThemeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000013C /* ThemeStore.swift */; };
+		AABBCC00000000000000023D /* ThemeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000013D /* ThemeSettingsView.swift */; };
+		AABBCC00000000000000023E /* ThemeGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000013E /* ThemeGalleryView.swift */; };
+		AABBCC0000000000000000F3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AABBCC0000000000000000F1 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		AABBCC0000000000000000FE /* Counter.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Counter.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AABBCC0000000000000000F0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AABBCC0000000000000000F1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AABBCC0000000000000000F2 /* Counter.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Counter.entitlements; sourceTree = "<group>"; };
+		AABBCC000000000000000101 /* CounterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CounterApp.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000102 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000103 /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000104 /* Endpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Endpoint.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000105 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000106 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000107 /* TokenRefreshActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenRefreshActor.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000108 /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStore.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000109 /* AccountStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountStore.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000010A /* Pagination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pagination.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000010B /* Auth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Auth.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000010C /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000010D /* Post.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Post.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000010E /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000010F /* AppNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNotification.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000110 /* Topic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Topic.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000111 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000112 /* FeedViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedViewModel.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000113 /* ThreadViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadViewModel.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000114 /* ProfileViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileViewModel.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000115 /* NotificationsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsViewModel.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000116 /* MessagesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesViewModel.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000117 /* ConversationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationViewModel.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000118 /* SearchViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchViewModel.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000119 /* ComposeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeViewModel.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000011A /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000011B /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000011C /* AuthFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthFlowView.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000011D /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000011E /* RegisterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegisterView.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000011F /* FeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000120 /* PostRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostRowView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000121 /* ThreadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000122 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000123 /* ProfileHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileHeaderView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000124 /* FollowListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowListView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000125 /* MessagesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000126 /* ConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000127 /* ConversationRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationRowView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000128 /* NotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000129 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000012A /* ComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeView.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000012B /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000012C /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000012D /* PostActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostActionBar.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000012E /* QuotedPostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotedPostView.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000012F /* MediaGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGridView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000130 /* UserRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserRowView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000131 /* NotificationRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRowView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000132 /* RelativeTimeText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelativeTimeText.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000133 /* CounterTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CounterTheme.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000134 /* ViewModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewModifiers.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000135 /* DateFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateFormatting.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000136 /* TextProcessing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextProcessing.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000137 /* PushNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotifications.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000138 /* NotificationPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPreferences.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000139 /* NotificationSettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsViewModel.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000013A /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000023F /* E2EEService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = E2EEService.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000013B /* CounterPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CounterPalette.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000013C /* ThemeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeStore.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000013D /* ThemeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeSettingsView.swift; sourceTree = "<group>"; };
+		AABBCC00000000000000013E /* ThemeGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeGalleryView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000241 /* DevicesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesViewModel.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000242 /* DevicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000245 /* PresenceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceSettings.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000246 /* PresenceSettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceSettingsViewModel.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000247 /* PresenceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceSettingsView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AABBCC00000000000000000E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AABBCC000000000000000020 /* / */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC000000000000000022 /* Counter */,
+				AABBCC000000000000000021 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000021 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC0000000000000000FE /* Counter.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000022 /* Counter */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC000000000000000023 /* App */,
+				AABBCC000000000000000024 /* Networking */,
+				AABBCC000000000000000025 /* Auth */,
+				AABBCC000000000000000026 /* Models */,
+				AABBCC000000000000000027 /* ViewModels */,
+				AABBCC000000000000000028 /* Views */,
+				AABBCC000000000000000034 /* Design */,
+				AABBCC000000000000000035 /* Utilities */,
+				AABBCC0000000000000000F1 /* Assets.xcassets */,
+				AABBCC0000000000000000F0 /* Info.plist */,
+				AABBCC0000000000000000F2 /* Counter.entitlements */,
+			);
+			path = Counter;
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000023 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC000000000000000101 /* CounterApp.swift */,
+				AABBCC000000000000000102 /* AppEnvironment.swift */,
+				AABBCC00000000000000013C /* ThemeStore.swift */,
+				AABBCC000000000000000137 /* PushNotifications.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000024 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC000000000000000103 /* APIError.swift */,
+				AABBCC000000000000000104 /* Endpoint.swift */,
+				AABBCC000000000000000105 /* APIClient.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000025 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC000000000000000106 /* KeychainStore.swift */,
+				AABBCC000000000000000107 /* TokenRefreshActor.swift */,
+				AABBCC000000000000000108 /* AuthStore.swift */,
+				AABBCC000000000000000109 /* AccountStore.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000026 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC00000000000000010A /* Pagination.swift */,
+				AABBCC00000000000000010B /* Auth.swift */,
+				AABBCC00000000000000010C /* User.swift */,
+				AABBCC00000000000000010D /* Post.swift */,
+				AABBCC00000000000000010E /* Message.swift */,
+				AABBCC00000000000000010F /* AppNotification.swift */,
+				AABBCC000000000000000110 /* Topic.swift */,
+				AABBCC000000000000000138 /* NotificationPreferences.swift */,
+				AABBCC00000000000000013A /* Theme.swift */,
+				AABBCC000000000000000245 /* PresenceSettings.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000027 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC000000000000000111 /* AuthViewModel.swift */,
+				AABBCC000000000000000112 /* FeedViewModel.swift */,
+				AABBCC000000000000000113 /* ThreadViewModel.swift */,
+				AABBCC000000000000000114 /* ProfileViewModel.swift */,
+				AABBCC000000000000000115 /* NotificationsViewModel.swift */,
+				AABBCC000000000000000116 /* MessagesViewModel.swift */,
+				AABBCC000000000000000117 /* ConversationViewModel.swift */,
+				AABBCC000000000000000118 /* SearchViewModel.swift */,
+				AABBCC000000000000000119 /* ComposeViewModel.swift */,
+				AABBCC000000000000000139 /* NotificationSettingsViewModel.swift */,
+				AABBCC000000000000000241 /* DevicesViewModel.swift */,
+				AABBCC000000000000000246 /* PresenceSettingsViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000028 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC000000000000000029 /* Root */,
+				AABBCC00000000000000002A /* Auth */,
+				AABBCC00000000000000002B /* Feed */,
+				AABBCC00000000000000002C /* Thread */,
+				AABBCC00000000000000002D /* Profile */,
+				AABBCC00000000000000002E /* Messages */,
+				AABBCC00000000000000002F /* Notifications */,
+				AABBCC000000000000000030 /* Search */,
+				AABBCC000000000000000031 /* Compose */,
+				AABBCC000000000000000032 /* Settings */,
+				AABBCC000000000000000033 /* Components */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000029 /* Root */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC00000000000000011A /* RootView.swift */,
+				AABBCC00000000000000011B /* MainTabView.swift */,
+			);
+			path = Root;
+			sourceTree = "<group>";
+		};
+		AABBCC00000000000000002A /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC00000000000000011C /* AuthFlowView.swift */,
+				AABBCC00000000000000011D /* LoginView.swift */,
+				AABBCC00000000000000011E /* RegisterView.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		AABBCC00000000000000002B /* Feed */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC00000000000000011F /* FeedView.swift */,
+				AABBCC000000000000000120 /* PostRowView.swift */,
+			);
+			path = Feed;
+			sourceTree = "<group>";
+		};
+		AABBCC00000000000000002C /* Thread */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC000000000000000121 /* ThreadView.swift */,
+			);
+			path = Thread;
+			sourceTree = "<group>";
+		};
+		AABBCC00000000000000002D /* Profile */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC000000000000000122 /* ProfileView.swift */,
+				AABBCC000000000000000123 /* ProfileHeaderView.swift */,
+				AABBCC000000000000000124 /* FollowListView.swift */,
+			);
+			path = Profile;
+			sourceTree = "<group>";
+		};
+		AABBCC00000000000000002E /* Messages */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC000000000000000125 /* MessagesView.swift */,
+				AABBCC000000000000000126 /* ConversationView.swift */,
+				AABBCC000000000000000127 /* ConversationRowView.swift */,
+			);
+			path = Messages;
+			sourceTree = "<group>";
+		};
+		AABBCC00000000000000002F /* Notifications */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC000000000000000128 /* NotificationsView.swift */,
+			);
+			path = Notifications;
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000030 /* Search */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC000000000000000129 /* SearchView.swift */,
+			);
+			path = Search;
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000031 /* Compose */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC00000000000000012A /* ComposeView.swift */,
+			);
+			path = Compose;
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000032 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC00000000000000012B /* SettingsView.swift */,
+				AABBCC00000000000000013D /* ThemeSettingsView.swift */,
+				AABBCC00000000000000013E /* ThemeGalleryView.swift */,
+				AABBCC000000000000000242 /* DevicesView.swift */,
+				AABBCC000000000000000247 /* PresenceSettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000033 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC00000000000000012C /* AvatarView.swift */,
+				AABBCC00000000000000012D /* PostActionBar.swift */,
+				AABBCC00000000000000012E /* QuotedPostView.swift */,
+				AABBCC00000000000000012F /* MediaGridView.swift */,
+				AABBCC000000000000000130 /* UserRowView.swift */,
+				AABBCC000000000000000131 /* NotificationRowView.swift */,
+				AABBCC000000000000000132 /* RelativeTimeText.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000034 /* Design */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC000000000000000133 /* CounterTheme.swift */,
+				AABBCC000000000000000134 /* ViewModifiers.swift */,
+				AABBCC00000000000000013B /* CounterPalette.swift */,
+			);
+			path = Design;
+			sourceTree = "<group>";
+		};
+		AABBCC000000000000000035 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				AABBCC000000000000000135 /* DateFormatting.swift */,
+				AABBCC000000000000000136 /* TextProcessing.swift */,
+				AABBCC00000000000000023F /* E2EEService.swift */,
+			);
+			path = Utilities;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AABBCC000000000000000002 /* Counter */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AABBCC000000000000000005 /* Build configuration list for PBXNativeTarget "Counter" */;
+			buildPhases = (
+				AABBCC00000000000000000D /* Sources */,
+				AABBCC00000000000000000E /* Frameworks */,
+				AABBCC00000000000000000F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Counter;
+			productName = Counter;
+			productReference = AABBCC0000000000000000FE /* Counter.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AABBCC000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					AABBCC000000000000000002 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = AABBCC000000000000000004 /* Build configuration list for PBXProject "Counter" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = AABBCC000000000000000020;
+			productRefGroup = AABBCC000000000000000021 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AABBCC000000000000000002 /* Counter */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AABBCC00000000000000000F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AABBCC0000000000000000F3 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AABBCC00000000000000000D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AABBCC000000000000000201 /* CounterApp.swift in Sources */,
+				AABBCC000000000000000202 /* AppEnvironment.swift in Sources */,
+				AABBCC000000000000000237 /* PushNotifications.swift in Sources */,
+				AABBCC000000000000000238 /* NotificationPreferences.swift in Sources */,
+				AABBCC000000000000000239 /* NotificationSettingsViewModel.swift in Sources */,
+				AABBCC000000000000000203 /* APIError.swift in Sources */,
+				AABBCC000000000000000204 /* Endpoint.swift in Sources */,
+				AABBCC000000000000000205 /* APIClient.swift in Sources */,
+				AABBCC000000000000000206 /* KeychainStore.swift in Sources */,
+				AABBCC000000000000000207 /* TokenRefreshActor.swift in Sources */,
+				AABBCC000000000000000208 /* AuthStore.swift in Sources */,
+				AABBCC000000000000000209 /* AccountStore.swift in Sources */,
+				AABBCC00000000000000020A /* Pagination.swift in Sources */,
+				AABBCC00000000000000020B /* Auth.swift in Sources */,
+				AABBCC00000000000000020C /* User.swift in Sources */,
+				AABBCC00000000000000020D /* Post.swift in Sources */,
+				AABBCC00000000000000020E /* Message.swift in Sources */,
+				AABBCC00000000000000020F /* AppNotification.swift in Sources */,
+				AABBCC000000000000000210 /* Topic.swift in Sources */,
+				AABBCC000000000000000211 /* AuthViewModel.swift in Sources */,
+				AABBCC000000000000000212 /* FeedViewModel.swift in Sources */,
+				AABBCC000000000000000213 /* ThreadViewModel.swift in Sources */,
+				AABBCC000000000000000214 /* ProfileViewModel.swift in Sources */,
+				AABBCC000000000000000215 /* NotificationsViewModel.swift in Sources */,
+				AABBCC000000000000000216 /* MessagesViewModel.swift in Sources */,
+				AABBCC000000000000000217 /* ConversationViewModel.swift in Sources */,
+				AABBCC000000000000000218 /* SearchViewModel.swift in Sources */,
+				AABBCC000000000000000219 /* ComposeViewModel.swift in Sources */,
+				AABBCC00000000000000021A /* RootView.swift in Sources */,
+				AABBCC00000000000000021B /* MainTabView.swift in Sources */,
+				AABBCC00000000000000021C /* AuthFlowView.swift in Sources */,
+				AABBCC00000000000000021D /* LoginView.swift in Sources */,
+				AABBCC00000000000000021E /* RegisterView.swift in Sources */,
+				AABBCC00000000000000021F /* FeedView.swift in Sources */,
+				AABBCC000000000000000220 /* PostRowView.swift in Sources */,
+				AABBCC000000000000000221 /* ThreadView.swift in Sources */,
+				AABBCC000000000000000222 /* ProfileView.swift in Sources */,
+				AABBCC000000000000000223 /* ProfileHeaderView.swift in Sources */,
+				AABBCC000000000000000224 /* FollowListView.swift in Sources */,
+				AABBCC000000000000000225 /* MessagesView.swift in Sources */,
+				AABBCC000000000000000226 /* ConversationView.swift in Sources */,
+				AABBCC000000000000000227 /* ConversationRowView.swift in Sources */,
+				AABBCC000000000000000228 /* NotificationsView.swift in Sources */,
+				AABBCC000000000000000229 /* SearchView.swift in Sources */,
+				AABBCC00000000000000022A /* ComposeView.swift in Sources */,
+				AABBCC00000000000000022B /* SettingsView.swift in Sources */,
+				AABBCC00000000000000022C /* AvatarView.swift in Sources */,
+				AABBCC00000000000000022D /* PostActionBar.swift in Sources */,
+				AABBCC00000000000000022E /* QuotedPostView.swift in Sources */,
+				AABBCC00000000000000022F /* MediaGridView.swift in Sources */,
+				AABBCC000000000000000230 /* UserRowView.swift in Sources */,
+				AABBCC000000000000000231 /* NotificationRowView.swift in Sources */,
+				AABBCC000000000000000232 /* RelativeTimeText.swift in Sources */,
+				AABBCC000000000000000233 /* CounterTheme.swift in Sources */,
+				AABBCC000000000000000234 /* ViewModifiers.swift in Sources */,
+				AABBCC000000000000000235 /* DateFormatting.swift in Sources */,
+				AABBCC000000000000000236 /* TextProcessing.swift in Sources */,
+				AABBCC000000000000000240 /* E2EEService.swift in Sources */,
+				AABBCC00000000000000023A /* Theme.swift in Sources */,
+				AABBCC00000000000000023B /* CounterPalette.swift in Sources */,
+				AABBCC00000000000000023C /* ThemeStore.swift in Sources */,
+				AABBCC00000000000000023D /* ThemeSettingsView.swift in Sources */,
+				AABBCC00000000000000023E /* ThemeGalleryView.swift in Sources */,
+				AABBCC000000000000000243 /* DevicesViewModel.swift in Sources */,
+				AABBCC000000000000000244 /* DevicesView.swift in Sources */,
+				AABBCC000000000000000248 /* PresenceSettings.swift in Sources */,
+				AABBCC000000000000000249 /* PresenceSettingsViewModel.swift in Sources */,
+				AABBCC00000000000000024A /* PresenceSettingsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AABBCC000000000000000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AABBCC000000000000000008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		AABBCC000000000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Counter/Counter.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8248296AJX;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Counter/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ltd.counter.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		AABBCC00000000000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Counter/Counter.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8248296AJX;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Counter/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ltd.counter.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AABBCC000000000000000004 /* Build configuration list for PBXProject "Counter" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AABBCC000000000000000007 /* Debug */,
+				AABBCC000000000000000008 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AABBCC000000000000000005 /* Build configuration list for PBXNativeTarget "Counter" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AABBCC000000000000000009 /* Debug */,
+				AABBCC00000000000000000A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = AABBCC000000000000000001 /* Project object */;
+}

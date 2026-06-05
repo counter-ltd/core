@@ -5,7 +5,7 @@
 /**
  * The signed-in following feed at /feed.
  *
- * Unlike the public landing page, this is plain reverse-chronological — no
+ * Unlike the public landing page, this is plain reverse-chronological, no
  * ranking. Topics are fetched in parallel to power the Composer's topic
  * selector, so posting into a topic doesn't require a separate round-trip.
  */

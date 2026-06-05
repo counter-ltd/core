@@ -24,15 +24,45 @@ import {
   postTags,
   tags,
   topics,
+  conversations,
   eq,
   and,
   inArray,
   isNull,
   count,
 } from '@counter/db';
-import type { PublicUser, Post, MediaItem, TopicRef } from '@counter/types';
+import { PRESENCE } from '@counter/config';
+import type { PresenceVisibility } from '@counter/config';
+import type { PublicUser, Post, MediaItem, TopicRef, ConversationRef, UserPresence } from '@counter/types';
 
 const iso = (d: Date) => d.toISOString();
+
+/**
+ * Check whether `viewerId` is allowed to see a presence field for `userId`
+ * given the user's configured visibility setting.
+ *
+ * @param visibility   The user's chosen visibility option.
+ * @param viewerId     The person asking; undefined for unauthenticated requests.
+ * @param userId       The profile being viewed.
+ * @param viewerFollowsUser  True when the viewer follows the profile owner.
+ * @param userFollowsViewer  True when the profile owner follows the viewer back.
+ */
+function presenceVisible(
+  visibility: string,
+  viewerId: string | undefined,
+  userId: string,
+  viewerFollowsUser: boolean,
+  userFollowsViewer: boolean,
+): boolean {
+  // A user always sees their own presence status regardless of settings.
+  if (viewerId === userId) return true;
+  if (visibility === 'everyone') return true;
+  if (!viewerId) return false; // 'followers' and 'mutualFollowers' require login
+  if (visibility === 'followers') return viewerFollowsUser;
+  // 'mutualFollowers': viewer follows user AND user follows viewer back.
+  if (visibility === 'mutualFollowers') return viewerFollowsUser && userFollowsViewer;
+  return false;
+}
 
 /**
  * Fold the rows of a `GROUP BY ... count()` query into an id → count lookup.
@@ -72,45 +102,97 @@ export async function serializeUsers(
   // One query per aggregate, all fired in parallel. The alternative, a single
   // join with several counts, fans out rows and double-counts; separate grouped
   // counts keep each number honest.
-  const [rows, postCounts, followerCounts, followingCounts, viewerFollows] = await Promise.all([
-    db.select().from(users).where(inArray(users.id, ids)),
-    // Post count is top-level posts only: replies (parentId set) and deleted
-    // posts don't count toward the number shown on a profile.
-    db
-      .select({ id: posts.userId, value: count() })
-      .from(posts)
-      .where(and(inArray(posts.userId, ids), eq(posts.deleted, false), isNull(posts.parentId)))
-      .groupBy(posts.userId),
-    // A follows row reads "followerId follows followingId". So a user's follower
-    // count is the rows where they're the followingId (people pointing at them),
-    // and their following count is the rows where they're the followerId. Easy
-    // to flip; the grouped key is what disambiguates the two queries below.
-    db
-      .select({ id: follows.followingId, value: count() })
-      .from(follows)
-      .where(inArray(follows.followingId, ids))
-      .groupBy(follows.followingId),
-    db
-      .select({ id: follows.followerId, value: count() })
-      .from(follows)
-      .where(inArray(follows.followerId, ids))
-      .groupBy(follows.followerId),
-    // Only worth a query when there's a viewer to relate to. With no viewer we
-    // resolve an empty array so the Promise.all shape stays the same either way.
-    viewerId
-      ? db
-          .select({ id: follows.followingId })
-          .from(follows)
-          .where(and(eq(follows.followerId, viewerId), inArray(follows.followingId, ids)))
-      : Promise.resolve([] as Array<{ id: string }>),
-  ]);
+  const [rows, postCounts, followerCounts, followingCounts, viewerFollows, userFollowsViewer] =
+    await Promise.all([
+      db.select().from(users).where(inArray(users.id, ids)),
+      // Post count is top-level posts only: replies (parentId set) and deleted
+      // posts don't count toward the number shown on a profile.
+      db
+        .select({ id: posts.userId, value: count() })
+        .from(posts)
+        .where(and(inArray(posts.userId, ids), eq(posts.deleted, false), isNull(posts.parentId)))
+        .groupBy(posts.userId),
+      // A follows row reads "followerId follows followingId". So a user's follower
+      // count is the rows where they're the followingId (people pointing at them),
+      // and their following count is the rows where they're the followerId. Easy
+      // to flip; the grouped key is what disambiguates the two queries below.
+      db
+        .select({ id: follows.followingId, value: count() })
+        .from(follows)
+        .where(inArray(follows.followingId, ids))
+        .groupBy(follows.followingId),
+      db
+        .select({ id: follows.followerId, value: count() })
+        .from(follows)
+        .where(inArray(follows.followerId, ids))
+        .groupBy(follows.followerId),
+      // Only worth a query when there's a viewer to relate to. With no viewer we
+      // resolve an empty array so the Promise.all shape stays the same either way.
+      viewerId
+        ? db
+            .select({ id: follows.followingId })
+            .from(follows)
+            .where(and(eq(follows.followerId, viewerId), inArray(follows.followingId, ids)))
+        : Promise.resolve([] as Array<{ id: string }>),
+      // "Which batch users follow the viewer back" — needed for 'mutualFollowers'
+      // presence visibility. Same empty-array fallback when there's no viewer.
+      viewerId
+        ? db
+            .select({ id: follows.followerId })
+            .from(follows)
+            .where(and(inArray(follows.followerId, ids), eq(follows.followingId, viewerId)))
+        : Promise.resolve([] as Array<{ id: string }>),
+    ]);
 
   const postMap = toCountMap(postCounts);
   const followerMap = toCountMap(followerCounts);
   const followingMap = toCountMap(followingCounts);
   const followingSet = new Set(viewerFollows.map((r) => r.id));
+  const followsBackSet = new Set(userFollowsViewer.map((r) => r.id));
+
+  const now = Date.now();
 
   for (const u of rows) {
+    // Compute online status: the user is online if the last heartbeat arrived
+    // within their configured interval plus a grace window for network jitter.
+    const onlineThresholdMs = (u.heartbeatIntervalSeconds + PRESENCE.ONLINE_GRACE_SECONDS) * 1000;
+    const isOnline =
+      u.onlineStatusEnabled &&
+      u.lastSeenAt !== null &&
+      now - u.lastSeenAt.getTime() < onlineThresholdMs;
+
+    const viewerFollowsUser = followingSet.has(u.id);
+    const profileUserFollowsViewer = followsBackSet.has(u.id);
+
+    const canSeeOnline =
+      u.onlineStatusEnabled &&
+      presenceVisible(
+        u.onlineStatusVisibility,
+        viewerId,
+        u.id,
+        viewerFollowsUser,
+        profileUserFollowsViewer,
+      );
+    const canSeeLastSeen =
+      u.lastSeenEnabled &&
+      presenceVisible(
+        u.lastSeenVisibility as PresenceVisibility,
+        viewerId,
+        u.id,
+        viewerFollowsUser,
+        profileUserFollowsViewer,
+      );
+
+    // presence is null when nothing is visible to this viewer; the field is
+    // included so clients can tell "disabled" from "not loaded".
+    const presence: UserPresence | null =
+      canSeeOnline || canSeeLastSeen
+        ? {
+            isOnline: canSeeOnline ? isOnline : false,
+            lastSeenAt: canSeeLastSeen && u.lastSeenAt ? iso(u.lastSeenAt) : null,
+          }
+        : null;
+
     result.set(u.id, {
       id: u.id,
       username: u.username,
@@ -127,9 +209,49 @@ export async function serializeUsers(
       ...(viewerId
         ? { viewer: { isFollowing: followingSet.has(u.id), isSelf: u.id === viewerId } }
         : {}),
+      presence,
     });
   }
 
+  return result;
+}
+
+/**
+ * Serialize a batch of conversations into the minimal ConversationRef a message
+ * notification needs: the conversation id plus the partner, the participant who
+ * isn't the viewer.
+ *
+ * Returns a Map keyed by conversation id. Conversations the viewer isn't part of
+ * (shouldn't happen for their own notifications) and ones with a missing partner
+ * are simply absent from the map.
+ *
+ * @param viewerId  The notification recipient, used to pick the other side as
+ *                  the partner.
+ */
+export async function serializeConversationRefs(
+  conversationIds: string[],
+  viewerId: string,
+): Promise<Map<string, ConversationRef>> {
+  const ids = [...new Set(conversationIds)];
+  const result = new Map<string, ConversationRef>();
+  if (ids.length === 0) return result;
+
+  const rows = await db.select().from(conversations).where(inArray(conversations.id, ids));
+
+  // The partner is whichever participant isn't the viewer. Gather those ids and
+  // serialize them in one batch so partners load with full profile + counts.
+  const partnerByConv = new Map<string, string>();
+  for (const conv of rows) {
+    const partnerId = conv.participantA === viewerId ? conv.participantB : conv.participantA;
+    partnerByConv.set(conv.id, partnerId);
+  }
+  const partners = await serializeUsers([...partnerByConv.values()], viewerId);
+
+  for (const conv of rows) {
+    const partner = partners.get(partnerByConv.get(conv.id)!);
+    if (!partner) continue;
+    result.set(conv.id, { id: conv.id, partner });
+  }
   return result;
 }
 

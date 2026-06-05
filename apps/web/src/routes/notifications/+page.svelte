@@ -23,11 +23,14 @@
     reply: 'replied to you',
     follow: 'followed you',
     mention: 'mentioned you',
+    message: 'sent you a message',
   };
 
-  // Where clicking the notification takes you: the post it's about if there is
-  // one (like/repost/reply/mention), otherwise the actor's profile (a follow).
+  // Where clicking the notification takes you: the conversation for a message,
+  // the post it's about if there is one (like/repost/reply/mention), otherwise
+  // the actor's profile (a follow).
   function target(n: Notification): string {
+    if (n.conversation) return `/messages/${n.conversation.partner.username}`;
     if (n.post) return `/${n.post.author.username}/post/${n.post.id}`;
     return `/${n.actor.username}`;
   }

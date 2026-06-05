@@ -17,3 +17,4 @@ export * from './theme.ts';
 export * from './algorithm.ts';
 export * from './topic.ts';
 export * from './trust.ts';
+export * from './messages.ts';

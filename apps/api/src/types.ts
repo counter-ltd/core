@@ -30,11 +30,30 @@ export interface WorkerBindings {
   /** Hyperdrive binding that hands back a pooled connection string per request. */
   HYPERDRIVE?: { connectionString: string };
   /**
+   * 64-char hex AES-256 key for encrypting message bodies at rest. Set via
+   * `wrangler secret put MESSAGE_ENCRYPTION_KEY`. Generate with:
+   *   openssl rand -hex 32
+   */
+  MESSAGE_ENCRYPTION_KEY: string;
+  /**
    * Cloudflare Email Sending binding (`send_email` in wrangler.jsonc). Optional
    * because it only exists once the sending domain is onboarded, so local dev
    * and tests run without it and any send is guarded on its presence.
    */
   EMAIL?: EmailBinding;
+  /**
+   * Apple Push credentials, set as Worker secrets in production. All optional:
+   * when absent (local dev, tests, before they're provisioned) push is skipped
+   * and the in-app inbox carries on. Read through loadServerEnv, not c.env, so
+   * the deep notification path doesn't have to thread the context.
+   */
+  APNS_KEY_ID?: string;
+  APNS_TEAM_ID?: string;
+  APNS_BUNDLE_ID?: string;
+  /** The .p8 signing key contents (PEM or bare base64). */
+  APNS_AUTH_KEY?: string;
+  /** Override to point at Apple's sandbox host; defaults to production. */
+  APNS_HOST?: string;
 }
 
 /**

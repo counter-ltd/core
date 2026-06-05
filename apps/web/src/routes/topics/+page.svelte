@@ -4,6 +4,10 @@
   Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
 -->
 <script lang="ts">
+  /**
+   * The topics discovery page at /topics: every community with its member and
+   * post counts, plus an inline join/leave button for signed-in viewers.
+   */
   import { compact } from '$lib/format';
   let { data } = $props();
 </script>

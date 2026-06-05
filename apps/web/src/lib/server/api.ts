@@ -29,7 +29,7 @@ export interface ApiResult<T = unknown> {
 }
 
 interface ApiOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   token?: string | null;
   body?: unknown;
   // Hand in SvelteKit's request-scoped `fetch` during SSR: it dedupes

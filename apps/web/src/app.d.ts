@@ -20,7 +20,7 @@ declare global {
       /** Current access token, possibly refreshed during the request. */
       accessToken: string | null;
       /**
-       * All stored accounts without their refresh tokens — safe to pass to the
+       * All stored accounts without their refresh tokens, safe to pass to the
        * browser via the root layout. First entry matches `user` when signed in.
        */
       accounts: Array<{

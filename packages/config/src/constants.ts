@@ -30,6 +30,15 @@ export const POST = {
   MAX_BODY_LENGTH: 5000,
 } as const;
 
+/** Direct message limits. */
+export const MESSAGE = {
+  MAX_BODY_LENGTH: 10_000,
+  // A v2 E2EE body embeds an SPKI-base64 ephemeral public key (~124 chars) plus
+  // IV plus ciphertext, which is larger than the raw plaintext. 20k is a safe
+  // ceiling for a 10k-character message after encryption.
+  MAX_ENCRYPTED_BODY_LENGTH: 20_000,
+} as const;
+
 /** Account field limits and the handle rules, enforced on signup and profile edits. */
 export const USER = {
   MIN_USERNAME_LENGTH: 2,
@@ -46,9 +55,24 @@ export const USER = {
 export const VIEW_REFERRERS = ['feed', 'profile', 'search', 'direct', 'external'] as const;
 export type ViewReferrer = (typeof VIEW_REFERRERS)[number];
 
-/** The kinds of notification we generate. Mirrors the free-text `type` column on notifications. */
-export const NOTIFICATION_TYPES = ['like', 'repost', 'reply', 'follow', 'mention'] as const;
+/**
+ * The kinds of notification we generate. Mirrors the free-text `type` column on
+ * notifications, and doubles as the set of toggles a user sees in notification
+ * settings: every type here is something they can mute.
+ */
+export const NOTIFICATION_TYPES = [
+  'like',
+  'repost',
+  'reply',
+  'follow',
+  'mention',
+  'message',
+] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+
+/** The device platforms we can deliver push to. Only native iOS today. */
+export const DEVICE_PLATFORMS = ['ios'] as const;
+export type DevicePlatform = (typeof DEVICE_PLATFORMS)[number];
 
 /**
  * The ranking algorithm, public by design. Counter exposes this verbatim through
@@ -83,6 +107,24 @@ export const ALGORITHM = {
     foldReplies: true,
   },
 } as const;
+
+/**
+ * Online status and last-seen visibility and heartbeat constraints.
+ *
+ * Both features are off by default. Visibility controls who can see each one
+ * independently. The heartbeat interval is user-configurable within the bounds
+ * below; the server adds a 30-second grace window on top when deciding "online".
+ */
+export const PRESENCE = {
+  VISIBILITY_OPTIONS: ['everyone', 'followers', 'mutualFollowers'] as const,
+  DEFAULT_VISIBILITY: 'everyone' as const,
+  DEFAULT_HEARTBEAT_INTERVAL: 300,
+  MIN_HEARTBEAT_INTERVAL: 60,
+  MAX_HEARTBEAT_INTERVAL: 3600,
+  /** Added on top of the user's interval when computing "still online". */
+  ONLINE_GRACE_SECONDS: 30,
+} as const;
+export type PresenceVisibility = (typeof PRESENCE.VISIBILITY_OPTIONS)[number];
 
 /** Stable machine-readable error codes. The API sends these in the `code` field
  *  so clients can branch on them instead of parsing human-facing messages. */

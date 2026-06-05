@@ -12,13 +12,14 @@
  * are called out at each handler.
  */
 import { Hono } from 'hono';
-import { db, users, eq } from '@counter/db';
+import { db, users, deviceKeys, eq } from '@counter/db';
 import {
   registerSchema,
   loginSchema,
   refreshSchema,
   logoutSchema,
   verifyEmailSchema,
+  registerPublicKeySchema,
 } from '@counter/types';
 import type { AuthResponse } from '@counter/types';
 import { body } from '../lib/validate.ts';
@@ -185,6 +186,35 @@ authRoutes.post('/refresh', async (c) => {
 authRoutes.post('/logout', async (c) => {
   const input = await body(c, logoutSchema);
   if (input?.refreshToken) await revokeByRefreshToken(input.refreshToken);
+  return c.json({ ok: true });
+});
+
+// List all device keys registered for the caller. Clients fetch this on page
+// load to know which of their own devices will receive copies of outgoing
+// messages, and to display the "you have unregistered devices" warning.
+authRoutes.get('/keys', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  const rows = await db
+    .select({ deviceId: deviceKeys.deviceId, publicKey: deviceKeys.publicKey })
+    .from(deviceKeys)
+    .where(eq(deviceKeys.userId, userId));
+  return c.json({ keys: rows });
+});
+
+// Register or rotate the E2EE key for one specific device. Clients call this
+// once per device on first use. The upsert on (userId, deviceId) means
+// re-registering the same device (e.g. after a key rotation) updates the row
+// rather than duplicating it.
+authRoutes.post('/keys', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  const input = await body(c, registerPublicKeySchema);
+  await db
+    .insert(deviceKeys)
+    .values({ userId, deviceId: input.deviceId, publicKey: input.publicKey })
+    .onConflictDoUpdate({
+      target: [deviceKeys.userId, deviceKeys.deviceId],
+      set: { publicKey: input.publicKey },
+    });
   return c.json({ ok: true });
 });
 

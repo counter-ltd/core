@@ -33,6 +33,7 @@
     { href: '/feed', label: '/feed', auth: true },
     { href: '/topics', label: '/topics', auth: false },
     { href: '/notifications', label: '/notifications', auth: true },
+    { href: '/messages', label: '/messages', auth: true },
     { href: '/insights', label: '/insights', auth: true },
     { href: '/themes', label: '/themes', auth: false },
     { href: '/algorithm', label: '/algorithm', auth: false },
@@ -128,6 +129,19 @@
         <a class="btn btn-primary" href="/login">Log in</a>
         <a class="btn" href="/register">Sign up</a>
       {/if}
+    </div>
+
+    <!--
+      "Built with Counter" attribution. The Counter Social License (Condition 5)
+      requires this on every deployment, visible to everyone without logging in,
+      linking back to the source. Placed here so it appears at the bottom of the
+      sidebar on both desktop and the mobile drawer.
+    -->
+    <div class="attribution">
+      <a href="https://counter.ltd" target="_blank" rel="noopener">
+        <span class="attr-mark" aria-hidden="true"></span>
+        <span>Built with Counter</span>
+      </a>
     </div>
   </div>
 
@@ -305,6 +319,31 @@
   }
   .me-actions form {
     margin: 0;
+  }
+  /* Quiet by default, accent on hover; the license forbids hiding this. */
+  .attribution {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-border);
+  }
+  .attribution a {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    color: var(--color-text-dim);
+  }
+  .attribution a:hover {
+    color: var(--color-accent);
+  }
+  /* Same filled cell as the nav brand mark, so the two read as one identity. */
+  .attr-mark {
+    width: 12px;
+    height: 12px;
+    border-radius: 1px;
+    background: var(--color-accent);
   }
   .hamburger {
     display: none;

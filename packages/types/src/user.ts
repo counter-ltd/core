@@ -11,7 +11,8 @@
  * see (their email) are added by PrivateUser.
  */
 import { z } from 'zod';
-import { USER } from '@counter/config';
+import { USER, PRESENCE } from '@counter/config';
+import type { PresenceVisibility } from '@counter/config';
 import type { TrustBadge } from './trust.ts';
 
 // Usernames are lowercased before the pattern check, so the stored form is
@@ -57,6 +58,42 @@ export const updateProfileSchema = z
   .partial();
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
+/**
+ * Presence data visible to a given viewer, subject to the user's visibility
+ * settings. Absent from the response when the feature is off or the viewer
+ * lacks permission to see it.
+ */
+export interface UserPresence {
+  isOnline: boolean;
+  /** ISO 8601 timestamp of the last heartbeat; null when lastSeen is disabled or hidden from this viewer. */
+  lastSeenAt: string | null;
+}
+
+/** The user's own presence configuration, returned only on their private profile. */
+export interface PresenceSettings {
+  onlineStatusEnabled: boolean;
+  onlineStatusVisibility: PresenceVisibility;
+  lastSeenEnabled: boolean;
+  lastSeenVisibility: PresenceVisibility;
+  heartbeatIntervalSeconds: number;
+}
+
+/** Partial update body for `PUT /users/me/presence`. All fields are optional. */
+export const presenceSettingsSchema = z
+  .object({
+    onlineStatusEnabled: z.boolean(),
+    onlineStatusVisibility: z.enum(PRESENCE.VISIBILITY_OPTIONS),
+    lastSeenEnabled: z.boolean(),
+    lastSeenVisibility: z.enum(PRESENCE.VISIBILITY_OPTIONS),
+    heartbeatIntervalSeconds: z
+      .number()
+      .int()
+      .min(PRESENCE.MIN_HEARTBEAT_INTERVAL)
+      .max(PRESENCE.MAX_HEARTBEAT_INTERVAL),
+  })
+  .partial();
+export type PresenceSettingsInput = z.infer<typeof presenceSettingsSchema>;
+
 /** A user as anyone may see them. Deliberately omits email and password hash. */
 export interface PublicUser {
   id: string;
@@ -82,9 +119,16 @@ export interface PublicUser {
     isFollowing: boolean;
     isSelf: boolean; // true when looking at your own profile
   };
+  /**
+   * Online status and last-seen, when visible to this viewer. Null means the
+   * user has the feature disabled or the viewer doesn't have permission.
+   * Absent entirely on feed authors (loaded only on single-profile fetches).
+   */
+  presence?: UserPresence | null;
 }
 
 /** The owner's own view of themselves: PublicUser plus the private fields. */
 export interface PrivateUser extends PublicUser {
   email: string; // only ever exposed to the account holder
+  presenceSettings: PresenceSettings;
 }

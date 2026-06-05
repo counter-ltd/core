@@ -27,6 +27,8 @@ import { themeRoutes } from './routes/themes.ts';
 import { algorithmRoutes } from './routes/algorithm.ts';
 import { topicRoutes } from './routes/topics.ts';
 import { integrationRoutes } from './routes/integrations.ts';
+import { messageRoutes } from './routes/messages.ts';
+import { deviceRoutes } from './routes/devices.ts';
 import type { AppEnv } from './types.ts';
 
 /**
@@ -66,6 +68,8 @@ export function createApp() {
   app.route('/algorithm', algorithmRoutes);
   app.route('/topics', topicRoutes);
   app.route('/integrations', integrationRoutes);
+  app.route('/messages', messageRoutes);
+  app.route('/devices', deviceRoutes);
 
   // Unmatched paths and thrown errors funnel through these two so every
   // response leaves the API in the same `{ error: { code, message } }` shape.

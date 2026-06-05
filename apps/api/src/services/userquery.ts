@@ -14,6 +14,7 @@ import { serializeUsers } from './serialize.ts';
 import { getTrustBadges } from './trust.ts';
 import { errors } from '../lib/errors.ts';
 import type { PrivateUser, PublicUser } from '@counter/types';
+import type { PresenceVisibility } from '@counter/config';
 
 /**
  * Find a user by either username or email, whichever the input matches. Used at
@@ -67,5 +68,15 @@ export async function getPrivateUser(userId: string): Promise<PrivateUser> {
   const pub = map.get(row.id);
   if (!pub) throw errors.notFound('User not found');
   pub.signals = await getTrustBadges(row.id, row.verified);
-  return { ...pub, email: row.email };
+  return {
+    ...pub,
+    email: row.email,
+    presenceSettings: {
+      onlineStatusEnabled: row.onlineStatusEnabled,
+      onlineStatusVisibility: row.onlineStatusVisibility as PresenceVisibility,
+      lastSeenEnabled: row.lastSeenEnabled,
+      lastSeenVisibility: row.lastSeenVisibility as PresenceVisibility,
+      heartbeatIntervalSeconds: row.heartbeatIntervalSeconds,
+    },
+  };
 }

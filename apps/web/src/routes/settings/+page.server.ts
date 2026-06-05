@@ -3,28 +3,53 @@
 // Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
 
 /**
- * The account settings page: edit your profile, or delete the account.
+ * The account settings page: profile editing, notifications, integrations,
+ * privacy (device list), and account management.
  *
- * The two actions are very different in weight, so they're kept separate: a
- * routine `profile` save, and a guarded `deleteAccount` that needs explicit
- * typed confirmation and tears the session down afterwards.
+ * Destructive actions (deleteDevice, deleteAccount) are intentionally separate
+ * from routine saves so a stray POST can't wipe anything important.
  */
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { apiFetch } from '$lib/server/api';
 import { removeAccount } from '$lib/server/session';
-import type { PrivateUser, Integration } from '@counter/types';
+import { NOTIFICATION_TYPES, PRESENCE } from '@counter/config';
+import type { PrivateUser, Integration, NotificationPreferences, DeviceRecord, PresenceSettings } from '@counter/types';
+
+// Default every type on, so a failed fetch still renders a sensible panel rather
+// than blanking the toggles. Mirrors the API's default-on behaviour.
+const allOn = (): NotificationPreferences =>
+  Object.fromEntries(NOTIFICATION_TYPES.map((t) => [t, true])) as NotificationPreferences;
+
+// Safe default when the presence fetch fails: everything off, no data leaked.
+const defaultPresence = (): PresenceSettings => ({
+  onlineStatusEnabled: false,
+  onlineStatusVisibility: PRESENCE.DEFAULT_VISIBILITY,
+  lastSeenEnabled: false,
+  lastSeenVisibility: PRESENCE.DEFAULT_VISIBILITY,
+  heartbeatIntervalSeconds: PRESENCE.DEFAULT_HEARTBEAT_INTERVAL,
+});
 
 export const load: PageServerLoad = async ({ locals, fetch }) => {
   if (!locals.user) throw redirect(303, '/login');
-  // The profile form is pre-filled from the session user we already have. The
-  // links list needs a fetch; on failure we fall back to an empty list so the
-  // rest of settings still renders.
-  const links = await apiFetch<Integration[]>('/integrations/me', {
-    token: locals.accessToken,
-    fetch,
-  });
-  return { profile: locals.user, links: links.ok ? links.data : [] };
+  // Profile form is pre-filled from the session user. Everything else needs a
+  // fetch; all run in parallel and fall back to safe defaults on failure.
+  const [links, prefs, devicesRes, presenceRes] = await Promise.all([
+    apiFetch<Integration[]>('/integrations/me', { token: locals.accessToken, fetch }),
+    apiFetch<NotificationPreferences>('/notifications/preferences', {
+      token: locals.accessToken,
+      fetch,
+    }),
+    apiFetch<DeviceRecord[]>('/devices', { token: locals.accessToken, fetch }),
+    apiFetch<PresenceSettings>('/users/me/presence', { token: locals.accessToken, fetch }),
+  ]);
+  return {
+    profile: locals.user,
+    links: links.ok ? links.data : [],
+    notificationPrefs: prefs.ok ? prefs.data : allOn(),
+    devices: devicesRes.ok ? devicesRes.data : [],
+    presenceSettings: presenceRes.ok ? presenceRes.data : defaultPresence(),
+  };
 };
 
 export const actions: Actions = {
@@ -48,6 +73,48 @@ export const actions: Actions = {
     if (!res.ok) return fail(res.status, { error: res.error?.message ?? 'Could not save.' });
     // `saved: true` is the flag the page uses to flash a confirmation.
     return { saved: true };
+  },
+
+  notifications: async ({ request, locals }) => {
+    if (!locals.accessToken) throw redirect(303, '/login');
+    const form = await request.formData();
+
+    // The checkboxes only POST when checked, so an absent key means "off". We
+    // send an explicit boolean for every type rather than only the present ones,
+    // which keeps the save idempotent regardless of what the browser omits.
+    const body = Object.fromEntries(
+      NOTIFICATION_TYPES.map((t) => [t, form.get(t) === 'on']),
+    ) as NotificationPreferences;
+
+    const res = await apiFetch('/notifications/preferences', {
+      method: 'PUT',
+      token: locals.accessToken,
+      body,
+    });
+    if (!res.ok) return fail(res.status, { notifyError: res.error?.message ?? 'Could not save.' });
+    return { notifySaved: true };
+  },
+
+  presence: async ({ request, locals }) => {
+    if (!locals.accessToken) throw redirect(303, '/login');
+    const form = await request.formData();
+
+    const body = {
+      onlineStatusEnabled: form.get('onlineStatusEnabled') === 'on',
+      onlineStatusVisibility: String(form.get('onlineStatusVisibility') ?? 'everyone'),
+      lastSeenEnabled: form.get('lastSeenEnabled') === 'on',
+      lastSeenVisibility: String(form.get('lastSeenVisibility') ?? 'everyone'),
+      // The range input sends a string; coerce to number for the API.
+      heartbeatIntervalSeconds: Number(form.get('heartbeatIntervalSeconds') ?? 300),
+    };
+
+    const res = await apiFetch('/users/me/presence', {
+      method: 'PUT',
+      token: locals.accessToken,
+      body,
+    });
+    if (!res.ok) return fail(res.status, { presenceError: res.error?.message ?? 'Could not save.' });
+    return { presenceSaved: true };
   },
 
   resendVerification: async ({ locals }) => {
@@ -94,6 +161,14 @@ export const actions: Actions = {
     const id = String(form.get('id') ?? '');
     await apiFetch(`/integrations/${id}`, { method: 'DELETE', token: locals.accessToken });
     return { linkRemoved: true };
+  },
+
+  deleteDevice: async ({ request, locals }) => {
+    if (!locals.accessToken) throw redirect(303, '/login');
+    const form = await request.formData();
+    const id = String(form.get('id') ?? '');
+    await apiFetch(`/devices/by-id/${id}`, { method: 'DELETE', token: locals.accessToken });
+    return { deviceRemoved: true };
   },
 
   deleteAccount: async ({ request, locals, cookies }) => {

@@ -72,6 +72,15 @@ const serverEnvSchema = z.object({
   S3_ACCESS_KEY: z.string().optional().default(''),
   S3_SECRET_KEY: z.string().optional().default(''),
   S3_BUCKET: z.string().optional().default(''),
+  // Apple Push credentials. All optional: when any is missing we simply don't
+  // send push (local dev and tests run without them), so the inbox still works.
+  // APNS_AUTH_KEY holds the .p8 contents (PEM or bare base64; the sender strips
+  // headers either way). APNS_HOST lets staging point at Apple's sandbox.
+  APNS_KEY_ID: z.string().optional().default(''),
+  APNS_TEAM_ID: z.string().optional().default(''),
+  APNS_BUNDLE_ID: z.string().optional().default(''),
+  APNS_AUTH_KEY: z.string().optional().default(''),
+  APNS_HOST: z.string().optional().default('https://api.push.apple.com'),
   PUBLIC_API_URL: z.string().url().default('http://localhost:3000'),
   // API-specific port. We deliberately do NOT read a bare `PORT`: in a monorepo
   // dev setup the web framework also claims PORT, and some harnesses inject it,

@@ -10,15 +10,20 @@
  * serializers so the client gets full user and post objects, not bare ids.
  */
 import { Hono } from 'hono';
-import { db, notifications, eq, and, desc } from '@counter/db';
-import { paginationQuerySchema } from '@counter/types';
-import type { Page, Notification } from '@counter/types';
+import { db, notifications, notificationPreferences, eq, and, inArray, desc } from '@counter/db';
+import { paginationQuerySchema, notificationPreferencesSchema } from '@counter/types';
+import type { Page, Notification, NotificationPreferences } from '@counter/types';
+import { NOTIFICATION_TYPES } from '@counter/config';
 import type { NotificationType } from '@counter/config';
-import { query } from '../lib/validate.ts';
+import { body, query } from '../lib/validate.ts';
 import { errors } from '../lib/errors.ts';
 import { keysetWhere, paginate } from '../lib/cursor.ts';
 import { requireAuth, requireUserId } from '../middleware/auth.ts';
-import { serializeUsers, serializePosts } from '../services/serialize.ts';
+import {
+  serializeUsers,
+  serializePosts,
+  serializeConversationRefs,
+} from '../services/serialize.ts';
 import type { AppEnv } from '../types.ts';
 
 export const notificationRoutes = new Hono<AppEnv>();
@@ -56,14 +61,17 @@ notificationRoutes.get('/', async (c) => {
 
   const { data: pageRows, nextCursor } = paginate(rows, limit, (r) => r.id);
 
-  // Batch-hydrate every referenced actor and post in two queries instead of one
-  // per notification. postId is nullable (a follow has no post), so drop the
-  // nulls before asking for posts.
+  // Batch-hydrate every referenced actor, post, and conversation in parallel
+  // instead of one query per notification. postId and conversationId are both
+  // nullable (a follow has no post, only a message has a conversation), so drop
+  // the nulls before asking for each.
   const actorIds = pageRows.map((r) => r.actorId);
   const postIds = pageRows.map((r) => r.postId).filter((id): id is string => !!id);
-  const [actors, posts] = await Promise.all([
+  const convIds = pageRows.map((r) => r.conversationId).filter((id): id is string => !!id);
+  const [actors, posts, convs] = await Promise.all([
     serializeUsers(actorIds, userId),
     serializePosts(postIds, userId),
+    serializeConversationRefs(convIds, userId),
   ]);
 
   const data: Notification[] = pageRows
@@ -77,6 +85,7 @@ notificationRoutes.get('/', async (c) => {
         type: r.type as NotificationType,
         actor,
         post: r.postId ? posts.get(r.postId) ?? null : null,
+        conversation: r.conversationId ? convs.get(r.conversationId) ?? null : null,
         read: r.read,
         createdAt: r.createdAt.toISOString(),
       } satisfies Notification;
@@ -84,6 +93,63 @@ notificationRoutes.get('/', async (c) => {
     .filter((n): n is Notification => !!n);
 
   return c.json<Page<Notification>>({ data, nextCursor });
+});
+
+// --- preferences ---
+
+// The caller's per-type toggles. We store only the muted types (a row per mute),
+// so reading them means starting from all-on and flipping off whatever has a
+// row. That way a brand-new account with no rows gets every type enabled.
+notificationRoutes.get('/preferences', async (c) => {
+  const userId = requireUserId(c);
+  const muted = await db
+    .select({ type: notificationPreferences.type })
+    .from(notificationPreferences)
+    .where(eq(notificationPreferences.userId, userId));
+  const mutedSet = new Set(muted.map((r) => r.type));
+
+  const prefs = Object.fromEntries(
+    NOTIFICATION_TYPES.map((t) => [t, !mutedSet.has(t)]),
+  ) as NotificationPreferences;
+  return c.json(prefs);
+});
+
+// Update toggles. The body carries only the types that changed, each a boolean.
+// true (on) deletes any mute row; false (off) inserts one. We translate the
+// client's on/off into our mute-row model here so the storage stays default-on.
+notificationRoutes.put('/preferences', async (c) => {
+  const userId = requireUserId(c);
+  const input = await body(c, notificationPreferencesSchema);
+
+  const toMute: string[] = [];
+  const toUnmute: string[] = [];
+  for (const type of NOTIFICATION_TYPES) {
+    const value = input[type];
+    if (value === undefined) continue; // untouched toggle keeps its current state
+    if (value) toUnmute.push(type);
+    else toMute.push(type);
+  }
+
+  if (toMute.length > 0) {
+    // onConflictDoNothing so re-muting an already-muted type is a harmless no-op
+    // rather than a primary-key violation.
+    await db
+      .insert(notificationPreferences)
+      .values(toMute.map((type) => ({ userId, type })))
+      .onConflictDoNothing();
+  }
+  if (toUnmute.length > 0) {
+    await db
+      .delete(notificationPreferences)
+      .where(
+        and(
+          eq(notificationPreferences.userId, userId),
+          inArray(notificationPreferences.type, toUnmute),
+        ),
+      );
+  }
+
+  return c.json({ ok: true });
 });
 
 // --- mark read ---

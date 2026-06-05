@@ -97,6 +97,101 @@ export async function verifyPassword(password: string, stored: string): Promise<
   return timingSafeEqual(actual, expected);
 }
 
+// --- AES-256-GCM message body encryption ---
+
+// 96-bit IV: the recommended size for AES-GCM. Random per message, never reused.
+const AES_IV_BYTES = 12;
+
+/**
+ * Decode a hex string to raw bytes. Used to load the key material from the
+ * Worker secret, which we store as hex so it's easy to generate with openssl.
+ */
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) bytes[i >> 1] = parseInt(hex.slice(i, i + 2), 16);
+  return bytes;
+}
+
+// Isolate-level cache: importing a CryptoKey is not free. Since the key
+// constant doesn't change for the lifetime of the Worker isolate, caching it
+// here means we pay the import cost once per cold start, not once per request.
+const aesKeyCache = new Map<string, CryptoKey>();
+
+async function importAesKey(hexKey: string): Promise<CryptoKey> {
+  const hit = aesKeyCache.get(hexKey);
+  if (hit) return hit;
+  const raw = hexToBytes(hexKey);
+  if (raw.length !== 32) throw new Error('MESSAGE_ENCRYPTION_KEY must be 64 hex chars (32 bytes)');
+  const key = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, [
+    'encrypt',
+    'decrypt',
+  ]);
+  aesKeyCache.set(hexKey, key);
+  return key;
+}
+
+/**
+ * Encrypt a message body for storage with AES-256-GCM.
+ *
+ * Stored format: `v1:<base64-iv>:<base64-ciphertext>`. The `v1:` prefix is a
+ * version tag so if we ever rotate to a different scheme, old rows can still be
+ * read by checking which prefix they carry.
+ *
+ * @param plaintext  The message body to encrypt.
+ * @param hexKey     The 64-char hex MESSAGE_ENCRYPTION_KEY from `c.env`.
+ */
+export async function encryptMessage(plaintext: string, hexKey: string): Promise<string> {
+  const key = await importAesKey(hexKey);
+  const iv = crypto.getRandomValues(new Uint8Array(AES_IV_BYTES));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    encoder.encode(plaintext),
+  );
+  return `v1:${toBase64(iv)}:${toBase64(new Uint8Array(ciphertext))}`;
+}
+
+/**
+ * Decrypt a stored message body.
+ *
+ * Rows that pre-date encryption don't carry the `v1:` prefix and are returned
+ * unchanged, so an in-place rollout doesn't break any existing messages. Once
+ * every old row has been re-encrypted (or you're happy to show them as-is),
+ * that plaintext fallback can be removed.
+ *
+ * @param stored   The raw value read from the database.
+ * @param hexKey   The 64-char hex MESSAGE_ENCRYPTION_KEY from `c.env`.
+ */
+export async function decryptMessage(stored: string, hexKey: string): Promise<string> {
+  // Pre-encryption rows are plain text; return them as-is.
+  if (!stored.startsWith('v1:')) return stored;
+  const [, ivB64, ctB64] = stored.split(':');
+  const key = await importAesKey(hexKey);
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: fromBase64(ivB64!) },
+    key,
+    fromBase64(ctB64!),
+  );
+  return new TextDecoder().decode(plaintext);
+}
+
+/**
+ * Whether a stored message body is an E2EE ciphertext that the server cannot
+ * decrypt. Matches both `v2:` (single-device, legacy) and `v3:` (multi-device)
+ * formats; the server passes either through to clients as-is.
+ */
+export function isE2eeMessage(body: string): boolean {
+  return body.startsWith('v2:') || body.startsWith('v3:');
+}
+
+/**
+ * Whether a body is a v3 multi-device E2EE ciphertext. New sends must use v3
+ * so every registered device (sender and recipient) gets a decryptable copy.
+ */
+export function isV3Message(body: string): boolean {
+  return body.startsWith('v3:');
+}
+
 /**
  * Lowercase hex SHA-256 of a string.
  *

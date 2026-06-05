@@ -51,7 +51,7 @@ export const actions: Actions = {
       return fail(res.status, { ...values, error: res.error?.message ?? 'Could not create account.' });
     }
 
-    // Register returns a full session — add the new account to the list and
+    // Register returns a full session, so add the new account to the list and
     // make it active immediately.
     setActiveAccount(cookies, res.data, res.data.user);
     throw redirect(303, '/feed');
