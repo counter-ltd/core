@@ -10,23 +10,29 @@
  * when there's no match, so route handlers don't each have to repeat that guard.
  */
 import { db, users, eq, or } from '@counter/db';
+import { loadServerEnv } from '@counter/config/env';
 import { serializeUsers } from './serialize.ts';
 import { getTrustBadges } from './trust.ts';
+import { getUserGroupRows, effectivePermissions, toGroupSummaries } from './permissions.ts';
 import { errors } from '../lib/errors.ts';
+import { blindIndex, decryptField } from '../lib/crypto.ts';
 import type { PrivateUser, PublicUser } from '@counter/types';
-import type { PresenceVisibility } from '@counter/config';
+import type { PresenceVisibility, MessagingPrivacy, UserStatus } from '@counter/config';
 
 /**
  * Find a user by either username or email, whichever the input matches. Used at
  * login, where the same field accepts both.
  *
- * Lowercased before matching because both columns are stored lowercased, so a
- * raw-case "Alice@x.com" still resolves.
+ * Lowercased before matching because usernames are stored lowercased and the
+ * email blind index is computed over the lower-cased address, so a raw-case
+ * "Alice@x.com" still resolves. Email is encrypted at rest, so we match on its
+ * blind index rather than the (un-queryable) ciphertext column.
  */
 export async function findUserByIdentifier(identifier: string) {
   const lowered = identifier.toLowerCase();
+  const emailIdx = await blindIndex(lowered, loadServerEnv().BLIND_INDEX_KEY);
   return db.query.users.findFirst({
-    where: or(eq(users.username, lowered), eq(users.email, lowered)),
+    where: or(eq(users.username, lowered), eq(users.emailIndex, emailIdx)),
   });
 }
 
@@ -68,15 +74,27 @@ export async function getPrivateUser(userId: string): Promise<PrivateUser> {
   const pub = map.get(row.id);
   if (!pub) throw errors.notFound('User not found');
   pub.signals = await getTrustBadges(row.id, row.verified);
+  // Stored encrypted; decrypt for the owner's own profile view. decryptField
+  // passes through any legacy plain-text value unchanged, so this is safe pre- or
+  // post-encryption.
+  const email = await decryptField(row.email, loadServerEnv().MESSAGE_ENCRYPTION_KEY);
+  // Resolve the owner's own groups and the permissions they add up to, so a
+  // client can decide whether to surface the admin panel without a second call.
+  const groupRows = await getUserGroupRows(row.id);
   return {
     ...pub,
-    email: row.email,
+    email,
+    groups: toGroupSummaries(groupRows),
+    permissions: effectivePermissions(groupRows),
+    status: row.status as UserStatus,
     presenceSettings: {
       onlineStatusEnabled: row.onlineStatusEnabled,
       onlineStatusVisibility: row.onlineStatusVisibility as PresenceVisibility,
       lastSeenEnabled: row.lastSeenEnabled,
       lastSeenVisibility: row.lastSeenVisibility as PresenceVisibility,
       heartbeatIntervalSeconds: row.heartbeatIntervalSeconds,
+      messagingPrivacy: row.messagingPrivacy as MessagingPrivacy,
+      typingIndicatorsEnabled: row.typingIndicatorsEnabled,
     },
   };
 }

@@ -35,16 +35,25 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const topicId = form.get('topicId');
   const back = safeRedirect(form.get('redirectTo'));
 
+  // The composer uploads photos first (to /actions/upload) and drops each
+  // returned object id into a hidden `mediaObjectId` field, so attaching here is
+  // just reading those ids back out and handing them to the API.
+  const media = form
+    .getAll('mediaObjectId')
+    .map((v) => String(v))
+    .filter(Boolean)
+    .map((objectId) => ({ objectId }));
+
   // Can't post while logged out; bounce to login before touching the API.
   if (!locals.accessToken) throw redirect(303, '/login');
-  // Empty after trimming means nothing to say: quietly send them back.
-  if (!body) throw redirect(303, back);
+  // Empty after trimming means nothing to say, unless a photo carries the post.
+  if (!body && media.length === 0) throw redirect(303, back);
 
   if (parentId) {
     await apiFetch(`/posts/${parentId}/replies`, {
       method: 'POST',
       token: locals.accessToken,
-      body: { body },
+      body: { body, ...(media.length ? { media } : {}) },
     });
     throw redirect(303, back);
   }
@@ -52,7 +61,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const res = await apiFetch<Post>('/posts', {
     method: 'POST',
     token: locals.accessToken,
-    body: { body, ...(topicId ? { topicId: String(topicId) } : {}) },
+    body: {
+      body,
+      ...(topicId ? { topicId: String(topicId) } : {}),
+      ...(media.length ? { media } : {}),
+    },
   });
 
   // On success, drop the author straight onto their new post's page. If the

@@ -43,6 +43,14 @@ final class NotificationsViewModel {
         }
     }
 
+    /// Fold a notification that arrived over the live socket into the top of the
+    /// list, so the tab badge and inbox update without a refetch. Ignores
+    /// duplicates in case a refresh already pulled it in.
+    func receiveLive(_ n: AppNotification) {
+        guard !notifications.contains(where: { $0.id == n.id }) else { return }
+        notifications.insert(n, at: 0)
+    }
+
     func loadMore() async {
         guard hasMore, !isLoading, let cursor else { return }
         isLoading = true

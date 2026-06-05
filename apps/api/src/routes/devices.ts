@@ -13,9 +13,11 @@
  */
 import { Hono } from 'hono';
 import { db, devices, eq, and } from '@counter/db';
+import { loadServerEnv } from '@counter/config/env';
 import { registerDeviceSchema } from '@counter/types';
 import { body } from '../lib/validate.ts';
 import { requireAuth, requireUserId } from '../middleware/auth.ts';
+import { blindIndex, encryptField } from '../lib/crypto.ts';
 import type { AppEnv } from '../types.ts';
 
 export const deviceRoutes = new Hono<AppEnv>();
@@ -56,12 +58,25 @@ deviceRoutes.post('/', async (c) => {
   // can't prove that, so we fall back to an empty string to satisfy the type
   // checker -- in practice a missing row here would mean a DB error that
   // threw before we got here.
+  // Token is encrypted at rest. The blind index carries the unique constraint
+  // and is the conflict target, since the randomised ciphertext can't be matched.
+  const env = loadServerEnv();
+  const tokenIndex = await blindIndex(input.token, env.BLIND_INDEX_KEY);
+  const token = await encryptField(input.token, env.MESSAGE_ENCRYPTION_KEY);
   const [row] = await db
     .insert(devices)
-    .values({ userId, platform: input.platform, token: input.token, name: input.name ?? null })
+    .values({ userId, platform: input.platform, token, tokenIndex, name: input.name ?? null })
     .onConflictDoUpdate({
-      target: devices.token,
-      set: { userId, platform: input.platform, name: input.name ?? null, lastSeenAt: new Date() },
+      target: devices.tokenIndex,
+      // Re-encrypt on re-register so the ciphertext is fresh; the blind index
+      // stays put, which is what makes this an upsert rather than a new row.
+      set: {
+        userId,
+        platform: input.platform,
+        token,
+        name: input.name ?? null,
+        lastSeenAt: new Date(),
+      },
     })
     .returning({ id: devices.id });
 
@@ -87,6 +102,9 @@ deviceRoutes.delete('/by-id/:id', async (c) => {
 deviceRoutes.delete('/:token', async (c) => {
   const userId = requireUserId(c);
   const token = c.req.param('token');
-  await db.delete(devices).where(and(eq(devices.token, token), eq(devices.userId, userId)));
+  // Match on the blind index of the supplied token, since the stored column is
+  // ciphertext. Scoped to the caller so one account can't drop another's device.
+  const tokenIndex = await blindIndex(token, loadServerEnv().BLIND_INDEX_KEY);
+  await db.delete(devices).where(and(eq(devices.tokenIndex, tokenIndex), eq(devices.userId, userId)));
   return c.json({ ok: true });
 });

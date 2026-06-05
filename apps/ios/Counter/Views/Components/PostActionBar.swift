@@ -15,6 +15,19 @@ struct PostActionBar: View {
     var onReply: (() -> Void)? = nil
     var onRepost: (() -> Void)? = nil
     var onLike: (() -> Void)? = nil
+    /// Whether to show the moderation overflow menu. Driven by the viewer's
+    /// `posts.moderate` permission; a normal account never sees it.
+    var canModerate: Bool = false
+    /// Whether to offer the hard, irreversible nuke. Rides its own
+    /// `posts.nuke` permission, separate from `canModerate`.
+    var canNuke: Bool = false
+    /// Current removal state, so the menu offers Restore on an already-removed
+    /// post and Remove otherwise. Tracked by the parent, not `post.deleted`
+    /// directly, so the row reflects an optimistic flip without a reload.
+    var isDeleted: Bool = false
+    var onRemove: (() -> Void)? = nil
+    var onRestore: (() -> Void)? = nil
+    var onNuke: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: CounterSpacing.xl) {
@@ -51,7 +64,51 @@ struct PostActionBar: View {
             .foregroundStyle(theme.textDim)
 
             Spacer()
+
+            if canModerate || canNuke {
+                moderationMenu
+            }
         }
+    }
+
+    // Moderator-only overflow at the trailing edge: remove/restore a post, and,
+    // for those who hold posts.nuke, the irreversible nuke. The API enforces the
+    // permissions again on the call, so this control is a convenience, not the
+    // security boundary.
+    private var moderationMenu: some View {
+        Menu {
+            if canModerate {
+                if isDeleted {
+                    Button {
+                        onRestore?()
+                    } label: {
+                        Label("Restore post", systemImage: "arrow.uturn.backward")
+                    }
+                } else {
+                    Button(role: .destructive) {
+                        onRemove?()
+                    } label: {
+                        Label("Remove post", systemImage: "trash")
+                    }
+                }
+            }
+            if canNuke {
+                Button(role: .destructive) {
+                    onNuke?()
+                } label: {
+                    Label("Nuke post", systemImage: "trash.slash")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15))
+                .foregroundStyle(theme.textDim)
+                // Pad the glyph out to a comfortable tap target without growing
+                // the visual footprint of the bar.
+                .frame(width: 32, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func actionButton(

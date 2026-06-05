@@ -4,6 +4,7 @@ build/
 .svelte-kit/
 .env
 .env.local
+.env.prod
 *.log
 .DS_Store
 

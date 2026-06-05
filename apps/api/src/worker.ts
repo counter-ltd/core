@@ -16,7 +16,16 @@
 import { loadServerEnv } from '@counter/config/env';
 import { createDb, runWithDb } from '@counter/db';
 import { createApp } from './app.ts';
+import { setWorkerBindings } from './lib/bindings.ts';
+import { sweepStaleObjects } from './services/media.ts';
 import type { WorkerBindings } from './types.ts';
+
+// Wrangler discovers Durable Object classes by their named exports from the
+// Worker entry point. Without this export the TUNNEL_SIGNALING binding silently
+// fails to bind at deploy time, even though the class is imported elsewhere.
+export { TunnelSignaling } from './durable-objects/TunnelSignaling.ts';
+export { ConversationHub } from './durable-objects/ConversationHub.ts';
+export { NotificationHub } from './durable-objects/NotificationHub.ts';
 
 const app = createApp();
 
@@ -25,6 +34,9 @@ export default {
     // loadServerEnv caches after the first call. The bindings are identical for
     // every request to this Worker, so re-seeding is a cheap no-op, not a leak.
     loadServerEnv(env as unknown as Record<string, string | undefined>);
+    // Stash the raw bindings so services without a request context (the live
+    // notification push) can reach the Durable Object namespaces.
+    setWorkerBindings(env);
 
     // Prefer the Hyperdrive pooled connection on Workers; DATABASE_URL is the
     // direct fallback used in local/test runs where Hyperdrive isn't bound.
@@ -46,5 +58,25 @@ export default {
     // teardown doesn't delay returning the response to the client.
     ctx.waitUntil(instance.sql.end());
     return response;
+  },
+
+  // Cron entry point. Wired to the `triggers.crons` schedule in wrangler.jsonc;
+  // runs the media garbage collector. Mirrors fetch's per-invocation setup since
+  // a scheduled run gets the same cold bindings and needs its own DB connection.
+  async scheduled(_event: ScheduledController, env: WorkerBindings, ctx: ExecutionContext): Promise<void> {
+    loadServerEnv(env as unknown as Record<string, string | undefined>);
+    setWorkerBindings(env);
+
+    const connectionString = env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL;
+    if (!connectionString) return;
+
+    const instance = createDb(connectionString);
+    // Hold the connection open until the sweep finishes, then drain it. The sweep
+    // deletes from R2 and Postgres, so it must complete before the isolate naps.
+    ctx.waitUntil(
+      runWithDb(instance, async () => {
+        await sweepStaleObjects();
+      }).finally(() => instance.sql.end()),
+    );
   },
 };

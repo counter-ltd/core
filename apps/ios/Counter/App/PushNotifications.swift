@@ -168,13 +168,15 @@ final class PushService: NSObject, UNUserNotificationCenterDelegate {
 
     // MARK: - UNUserNotificationCenterDelegate
 
-    /// Show banners while the app is foregrounded so a like or message isn't
-    /// swallowed silently.
+    /// While the app is foregrounded the live notification socket already folds
+    /// the event into the tab badge and lists, so suppress the banner and sound
+    /// to avoid a duplicate. Keep the badge and the notification-center entry so
+    /// nothing is lost if the user wasn't looking at the relevant screen.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .badge, .sound]
+        [.badge, .list]
     }
 
     /// Route a tapped notification to the screen it points at, using the custom

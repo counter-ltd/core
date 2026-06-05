@@ -143,6 +143,51 @@ extension View {
     }
 }
 
+// MARK: - Secondary button
+
+private struct CounterSecondaryButtonStyle: ButtonStyle {
+    @Environment(\.counterTheme) private var theme
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, CounterSpacing.md)
+            .background(theme.surface)
+            .foregroundStyle(theme.text)
+            .clipShape(RoundedRectangle(cornerRadius: CounterRadius.sm))
+            .overlay(
+                RoundedRectangle(cornerRadius: CounterRadius.sm)
+                    .strokeBorder(theme.border, lineWidth: 0.5)
+            )
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.7 : 1)
+    }
+}
+
+extension View {
+    /// Full-width surface-colored button with a hairline border. Use for secondary actions.
+    func counterSecondaryButton() -> some View {
+        buttonStyle(CounterSecondaryButtonStyle())
+    }
+}
+
+// MARK: - Brand logo
+
+extension Image {
+    /// Sizes a brand-logo asset (GitHub, Discord) as a tintable glyph.
+    ///
+    /// The asset ships as a template SVG, so the tint follows the surrounding
+    /// `foregroundStyle`. That's what lets a logo sit in a button or a list row
+    /// and pick up the same theme color as the text next to it, the same way
+    /// the web buttons use `fill="currentColor"`.
+    func brandLogo(size: CGFloat = 16) -> some View {
+        renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+    }
+}
+
 // MARK: - List row
 
 private struct CounterListRowModifier: ViewModifier {

@@ -65,6 +65,83 @@ actor APIClient {
         await request(endpoint)
     }
 
+    // MARK: - Media upload
+
+    /// Uploads image bytes to POST /media as multipart/form-data, returning the
+    /// stored object. Separate from `request` because that path only sends JSON
+    /// bodies; this one builds a multipart envelope. Shares the same
+    /// 401 -> refresh -> retry behaviour.
+    ///
+    /// - Parameters:
+    ///   - data: The raw image bytes.
+    ///   - mimeType: The image's MIME type, used for the multipart part header.
+    ///   - fileName: Filename for the part; cosmetic, the server sniffs the bytes.
+    func upload(
+        _ data: Data,
+        mimeType: String,
+        fileName: String = "upload"
+    ) async -> APIResult<MediaUploadResponse> {
+        let result = await performUpload(data: data, mimeType: mimeType, fileName: fileName)
+        if result.errorStatus == 401 {
+            let refreshed = await refreshActor.refresh()
+            guard refreshed else { return result }
+            return await performUpload(data: data, mimeType: mimeType, fileName: fileName)
+        }
+        return result
+    }
+
+    private func performUpload(
+        data: Data,
+        mimeType: String,
+        fileName: String
+    ) async -> APIResult<MediaUploadResponse> {
+        let url = Self.baseURL.appendingPathComponent("media")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Counter-iOS/1.0", forHTTPHeaderField: "User-Agent")
+        if let token = authStore.accessToken {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        // Hand-build the multipart body: one `file` part wrapping the raw bytes.
+        let boundary = "Boundary-\(UUID().uuidString)"
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        body.appendString("--\(boundary)\r\n")
+        body.appendString("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n")
+        body.appendString("Content-Type: \(mimeType)\r\n\r\n")
+        body.append(data)
+        body.appendString("\r\n--\(boundary)--\r\n")
+        req.httpBody = body
+
+        let respData: Data
+        let response: URLResponse
+        do {
+            (respData, response) = try await session.data(for: req)
+        } catch let urlError as URLError where urlError.code == .notConnectedToInternet
+                                              || urlError.code == .networkConnectionLost {
+            return .networkError(.unreachable)
+        } catch {
+            return .networkError(.unknown(error))
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            return .networkError(.unexpectedStatus(0))
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            if let apiError = parseAPIError(data: respData, status: http.statusCode) {
+                return .apiError(apiError)
+            }
+            return .networkError(.unexpectedStatus(http.statusCode))
+        }
+        do {
+            let decoded = try Self.decoder.decode(MediaUploadResponse.self, from: respData)
+            return .success(decoded)
+        } catch {
+            return .networkError(.decodingFailed(error))
+        }
+    }
+
     // MARK: - Internal
 
     private func perform<T: Decodable & Sendable>(_ endpoint: Endpoint) async -> APIResult<T> {
@@ -163,4 +240,11 @@ actor APIClient {
 struct Empty: Decodable, Sendable {
     init?() {}
     init(from decoder: Decoder) throws {}
+}
+
+private extension Data {
+    /// Append a UTF-8 string, used to assemble multipart bodies by hand.
+    mutating func appendString(_ string: String) {
+        if let d = string.data(using: .utf8) { append(d) }
+    }
 }

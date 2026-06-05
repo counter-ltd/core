@@ -30,10 +30,11 @@ import {
   inArray,
   isNull,
   count,
+  asc,
 } from '@counter/db';
 import { PRESENCE } from '@counter/config';
 import type { PresenceVisibility } from '@counter/config';
-import type { PublicUser, Post, MediaItem, TopicRef, ConversationRef, UserPresence } from '@counter/types';
+import type { PublicUser, Post, MediaItem, TopicRef, ConversationRef, UserPresence, DiscordShareMeta } from '@counter/types';
 
 const iso = (d: Date) => d.toISOString();
 
@@ -207,7 +208,15 @@ export async function serializeUsers(
         following: followingMap.get(u.id) ?? 0,
       },
       ...(viewerId
-        ? { viewer: { isFollowing: followingSet.has(u.id), isSelf: u.id === viewerId } }
+        ? {
+            viewer: {
+              isFollowing: followingSet.has(u.id),
+              isSelf: u.id === viewerId,
+              // Only the account holder needs to know their own setting; everyone
+              // else's value would be meaningless noise in the response.
+              ...(u.id === viewerId ? { onlineStatusEnabled: u.onlineStatusEnabled } : {}),
+            },
+          }
         : {}),
       presence,
     });
@@ -257,17 +266,21 @@ export async function serializeConversationRefs(
 
 /**
  * Serialize a batch of posts by id into the full Post shape: author, engagement
- * counts, media, tags, viewer flags, and one level of repost nesting.
+ * counts, media, tags, viewer flags, one level of repost nesting, and up to two
+ * top replies for feed display.
  *
  * Returns a Map keyed by id; the caller decides final ordering (see
  * serializePostList). Missing ids are simply absent from the map.
  *
  * @param viewerId  When set, each post gets a `viewer` block (liked / reposted);
  *                  the authors it loads are serialized with the same viewer.
+ * @param shallow   Skip the topReplies fetch. Used internally when serializing
+ *                  the replies themselves to prevent infinite recursion.
  */
 export async function serializePosts(
   postIds: string[],
   viewerId?: string,
+  shallow = false,
 ): Promise<Map<string, Post>> {
   const ids = [...new Set(postIds)];
   const result = new Map<string, Post>();
@@ -405,6 +418,9 @@ export async function serializePosts(
       // A deleted post keeps its row (so replies still thread) but its content is
       // blanked: no body, no media. The deleted flag lets the client tombstone it.
       body: p.deleted ? null : p.body,
+      // sourceMeta is blanked on deleted posts same as body, so the card
+      // content doesn't outlive the rest of the post.
+      sourceMeta: p.deleted ? null : ((p.sourceMeta as DiscordShareMeta | null) ?? null),
       author,
       parentId: p.parentId,
       repostOf: null,
@@ -438,7 +454,59 @@ export async function serializePosts(
       const target = flat.get(p.repostOf);
       post.repostOf = target ? { ...target, repostOf: null } : null;
     }
+    // Backstop for orphaned bare reposts: a post with no body and no surviving
+    // repost target has nothing to show. That happens when its target was
+    // hard-deleted and the FK set-null fired. Tombstone it so clients render the
+    // deleted placeholder instead of an empty card.
+    if (!post.deleted && post.body === null && post.repostOf === null) {
+      post.deleted = true;
+    }
     result.set(p.id, post);
+  }
+
+  // Top replies: fetch the two oldest direct replies for each primary post that
+  // has any, so feed clients can show a thread preview without a second request.
+  // Skipped when shallow=true (the recursive call for the replies themselves).
+  if (!shallow) {
+    const postsWithReplies = primaryRows
+      .filter((p) => (replyMap.get(p.id) ?? 0) > 0)
+      .map((p) => p.id);
+
+    if (postsWithReplies.length > 0) {
+      // One query for all replies across all feed posts; group in JS and take the
+      // two oldest per parent. Fetching the full reply body upfront is cheaper
+      // than N round-trips, and feed pages are small enough that the full set is
+      // rarely more than a few dozen rows.
+      const replyIdRows = await db
+        .select({ parentId: posts.parentId, id: posts.id })
+        .from(posts)
+        .where(and(inArray(posts.parentId, postsWithReplies), eq(posts.deleted, false)))
+        .orderBy(asc(posts.createdAt), asc(posts.id));
+
+      const replyIdsByParent = new Map<string, string[]>();
+      for (const row of replyIdRows) {
+        const parentId = row.parentId as string;
+        const list = replyIdsByParent.get(parentId) ?? [];
+        if (list.length < 2) {
+          list.push(row.id);
+          replyIdsByParent.set(parentId, list);
+        }
+      }
+
+      const allReplyIds = [...replyIdsByParent.values()].flat();
+      if (allReplyIds.length > 0) {
+        // Pass shallow=true so the replies themselves don't trigger another round
+        // of reply fetching; one level of preview is enough.
+        const replyPostMap = await serializePosts(allReplyIds, viewerId, true);
+        for (const [parentId, replyIds] of replyIdsByParent) {
+          const parent = result.get(parentId);
+          if (!parent) continue;
+          parent.topReplies = replyIds
+            .map((id) => replyPostMap.get(id))
+            .filter((p): p is Post => !!p);
+        }
+      }
+    }
   }
 
   return result;

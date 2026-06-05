@@ -27,8 +27,18 @@ import type { AppEnv } from '../types.ts';
  */
 export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
   const header = c.req.header('Authorization');
+  let token: string | null = null;
   if (header?.startsWith('Bearer ')) {
-    const token = header.slice(7).trim();
+    token = header.slice(7).trim();
+  } else if (c.req.header('Upgrade')?.toLowerCase() === 'websocket') {
+    // Browser WebSocket clients can't set an Authorization header, so for an
+    // upgrade we accept the access token from the query string instead. Scoped
+    // to upgrades only so a token never rides in a normal request URL (where it
+    // could land in a log or Referer); wss keeps it encrypted on the wire.
+    token = c.req.query('token') ?? null;
+  }
+
+  if (token) {
     try {
       const { userId } = await verifyAccessToken(token);
       c.set('userId', userId);

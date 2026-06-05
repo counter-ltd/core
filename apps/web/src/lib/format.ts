@@ -43,6 +43,47 @@ export function compact(n: number): string {
 }
 
 /**
+ * Render a private message body as safe HTML with bare URLs turned into links.
+ *
+ * URLs get `<a class="msg-link">` tags; all other content is HTML-escaped.
+ * Unlike `linkify`, this does not process @mentions or #hashtags — those
+ * patterns are for public posts, not private messages.
+ *
+ * The output is injected as raw HTML, so the URL itself is also escaped before
+ * being placed into the `href` attribute so a crafted URL can't break out.
+ *
+ * @param body  Raw message body text (plaintext, not ciphertext).
+ * @returns     Safe HTML string for use with `{@html ...}`.
+ */
+export function linkifyMessageBody(body: string): string {
+  // Split on URL boundaries so we can escape non-URL parts and build safe
+  // anchor tags for the URL parts without running escaping over the whole string.
+  const URL_RE = /(https?:\/\/[^\s<>"']+)/g;
+  const parts = body.split(URL_RE);
+  return parts
+    .map((part, i) => {
+      if (i % 2 === 1) {
+        // Odd indices are URL captures — strip trailing sentence punctuation
+        // then embed as a proper anchor.
+        const clean = part.replace(/[.,!?)\]}'";:]+$/, '');
+        const safe = clean
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+        return `<a class="msg-link" href="${safe}" target="_blank" rel="noopener noreferrer">${safe}</a>`;
+      }
+      // Even indices are plain text — full HTML escape + newline → <br>.
+      return part
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+    })
+    .join('');
+}
+
+/**
  * Render a post body to HTML with @mentions and #hashtags turned into links.
  *
  * The output is injected as raw HTML, so escaping has to come first and has to

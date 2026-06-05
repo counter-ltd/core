@@ -21,6 +21,7 @@ import { z } from 'zod';
 export const INTEGRATION_PLATFORMS = [
   'website',
   'github',
+  'discord',
   'bandcamp',
   'soundcloud',
   'letterboxd',
@@ -38,13 +39,24 @@ export const addIntegrationSchema = z.object({
 });
 export type AddIntegrationInput = z.infer<typeof addIntegrationSchema>;
 
+/** Body for `PATCH /integrations/:id`: toggle whether a badge shows on the profile. */
+export const patchIntegrationSchema = z.object({
+  displayed: z.boolean(),
+});
+export type PatchIntegrationInput = z.infer<typeof patchIntegrationSchema>;
+
 /** A linked external account as anyone may see it. */
 export interface Integration {
   id: string;
   platform: IntegrationPlatform;
+  /** The URL that was linked; null for OAuth-connected accounts with no manual URL. */
   url: string | null;
-  /** True once a rel="me" link-back proved the user controls the linked page. */
+  /** The username on the linked platform, derived from the URL or set by OAuth. */
+  username: string | null;
+  /** True once a rel="me" link-back or OAuth flow proved control of the account. */
   verified: boolean;
+  /** True when the user has chosen to show this badge on their public profile. */
+  displayed: boolean;
 }
 
 /** The kinds of trust badge a profile can show. Extends as new signals land. */
@@ -52,11 +64,13 @@ export type TrustBadgeKind = 'email' | 'link';
 
 /**
  * One badge on a profile. `href` is set when the badge points somewhere (a
- * verified link); `detail` is optional human context (e.g. the platform name).
+ * verified link); `detail` is optional human context (e.g. the username).
+ * `platform` lets the client render the right icon for known platforms.
  */
 export interface TrustBadge {
   kind: TrustBadgeKind;
   label: string;
   detail?: string;
   href?: string;
+  platform?: string;
 }

@@ -13,9 +13,33 @@
   import Nav from '$lib/components/Nav.svelte';
   import { applyTheme, setMode, THEME_STORAGE_KEY, MODE_STORAGE_KEY } from '$lib/theme';
   import { startHeartbeat, stopHeartbeat } from '$lib/heartbeat';
+  import { NotificationsLive } from '$lib/notifications-live';
+  import { badges } from '$lib/badges.svelte';
   import type { ThemeVariables } from '@counter/types';
 
   let { data, children } = $props();
+
+  // Seed the nav badges from the server count whenever the layout reloads (every
+  // navigation re-runs the load), so the counts self-correct to the truth; the
+  // live socket below nudges them between navigations.
+  $effect(() => {
+    badges.notifications = data.badges?.notifications ?? 0;
+    badges.messages = data.badges?.messages ?? 0;
+  });
+
+  // One notification socket for the whole app. A new notification bumps the
+  // right badge and is re-dispatched as a DOM event so an open notifications
+  // page can fold it in live without owning its own socket.
+  $effect(() => {
+    if (!data.user || !data.accessToken) return;
+    const live = new NotificationsLive(data.accessToken);
+    live.onNotification = (n) => {
+      if (n.type === 'message') badges.messages += 1;
+      else badges.notifications += 1;
+      window.dispatchEvent(new CustomEvent('counter:notification', { detail: n }));
+    };
+    return () => live.close();
+  });
 
   // Start or stop the presence heartbeat whenever the user's settings change.
   // $effect runs client-only, so the interval never touches the SSR pass.

@@ -21,5 +21,12 @@ export const load: PageServerLoad = async ({ url, locals, fetch }) => {
     fetch,
   });
 
-  return { conversations: res.ok ? res.data : { data: [], nextCursor: null } };
+  const all = res.ok ? res.data : { data: [] as Conversation[], nextCursor: null };
+
+  // Split into the main inbox (active conversations + requests the viewer sent)
+  // and an inbound-requests queue (requests the viewer received).
+  const conversations = { data: all.data.filter((c) => !c.isInboundRequest), nextCursor: all.nextCursor };
+  const requests = { data: all.data.filter((c) => c.isInboundRequest) };
+
+  return { conversations, requests };
 };

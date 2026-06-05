@@ -72,6 +72,10 @@ struct ProfileHeaderView: View {
                 }
             }
 
+            if let signals = user.signals, !signals.isEmpty {
+                platformBadgesRow(signals)
+            }
+
             HStack(spacing: CounterSpacing.xl) {
                 statLink(count: user.counts.posts, label: "posts", destination: nil)
                 statLink(count: user.counts.followers, label: "followers",
@@ -83,6 +87,63 @@ struct ProfileHeaderView: View {
         }
         .padding(CounterSpacing.lg)
     }
+
+    // MARK: - Badges
+
+    @ViewBuilder
+    private func platformBadgesRow(_ signals: [TrustBadge]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: CounterSpacing.sm) {
+                ForEach(signals, id: \.label) { badge in
+                    badgeChip(badge)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func badgeChip(_ badge: TrustBadge) -> some View {
+        let chip = HStack(spacing: 5) {
+            platformIcon(badge.platform)
+                .frame(width: 13, height: 13)
+            Text(badge.detail.map { "@\($0)" } ?? badge.label)
+                .font(CounterFont.mono(11))
+                .foregroundStyle(theme.accent)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(theme.surface)
+        .overlay(Capsule().strokeBorder(theme.border, lineWidth: 0.5))
+        .clipShape(Capsule())
+
+        // GitHub and Discord have known public profile URLs; make those tappable.
+        if let href = badge.href, let url = URL(string: href) {
+            Link(destination: url) { chip }
+        } else {
+            chip
+        }
+    }
+
+    @ViewBuilder
+    private func platformIcon(_ platform: String?) -> some View {
+        switch platform {
+        case "github":
+            Image("github-logo")
+                .brandLogo(size: 13)
+                .foregroundStyle(theme.accent)
+        case "discord":
+            Image("discord-logo")
+                .brandLogo(size: 13)
+                .foregroundStyle(theme.accent)
+        default:
+            // Generic fallback for platforms without a dedicated asset.
+            Text("✦")
+                .font(.system(size: 10))
+                .foregroundStyle(theme.accent)
+        }
+    }
+
+    // MARK: - Follow button
 
     private var followButton: some View {
         Button {

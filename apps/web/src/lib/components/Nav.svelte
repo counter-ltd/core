@@ -17,6 +17,7 @@
   import { page } from '$app/state';
   import type { PrivateUser } from '@counter/types';
   import Avatar from './Avatar.svelte';
+  import { badges } from '$lib/badges.svelte';
 
   let {
     user,
@@ -26,20 +27,48 @@
     accounts: Array<{ userId: string; username: string; displayName: string | null; avatarUrl: string | null }>;
   } = $props();
 
+  // The line-icon for each route, keyed by the link's `icon` field. Stored as
+  // raw inner markup so one shared <svg> (stroke + sizing) wraps them all; the
+  // paths are static and authored here, so {@html} is safe. All drawn on a
+  // 24x24 grid to line up on the same baseline.
+  const icons: Record<string, string> = {
+    home: '<path d="M3 11l9-8 9 8"/><path d="M5 9.5V21h14V9.5"/>',
+    feed: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+    topics: '<path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/>',
+    bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
+    chat: '<path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/>',
+    insights: '<path d="M3 3v18h18"/><path d="M7 16v-5M12 16V8M17 16v-3"/>',
+    themes: '<circle cx="13.5" cy="6.5" r="1.3"/><circle cx="17.5" cy="10.5" r="1.3"/><circle cx="8.5" cy="7.5" r="1.3"/><circle cx="6.5" cy="12.5" r="1.3"/><path d="M12 3a9 9 0 0 0 0 18 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a4 4 0 0 0 4-4 9 9 0 0 0-9-6z"/>',
+    about: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5h.01"/>',
+    admin: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',
+  };
+
   // The nav doubles as the site map, so each link's label is literally its
-  // path. `auth: true` means the link only shows to signed-in users.
+  // path. `auth: true` means the link only shows to signed-in users. The
+  // transparency/meta links (/algorithm, /changelog, /data) now live as tabs
+  // under /about, which keeps this list short enough to scan at a glance.
   const links = [
-    { href: '/', label: '/', auth: false },
-    { href: '/feed', label: '/feed', auth: true },
-    { href: '/topics', label: '/topics', auth: false },
-    { href: '/notifications', label: '/notifications', auth: true },
-    { href: '/messages', label: '/messages', auth: true },
-    { href: '/insights', label: '/insights', auth: true },
-    { href: '/themes', label: '/themes', auth: false },
-    { href: '/algorithm', label: '/algorithm', auth: false },
-    { href: '/changelog', label: '/changelog', auth: false },
-    { href: '/data', label: '/data', auth: false },
+    { href: '/', label: '/', icon: 'home', auth: false },
+    { href: '/feed', label: '/feed', icon: 'feed', auth: true },
+    { href: '/topics', label: '/topics', icon: 'topics', auth: false },
+    { href: '/notifications', label: '/notifications', icon: 'bell', auth: true },
+    { href: '/messages', label: '/messages', icon: 'chat', auth: true },
+    { href: '/insights', label: '/insights', icon: 'insights', auth: true },
+    { href: '/themes', label: '/themes', icon: 'themes', auth: false },
+    { href: '/about', label: '/about', icon: 'about', auth: false },
   ];
+
+  // The admin panel link only appears for accounts that hold at least one admin
+  // permission, so it's invisible to everyone else rather than 403-ing on click.
+  const isAdmin = $derived((user?.permissions?.length ?? 0) > 0);
+
+  // Live unread count for the two routes that have a badge; 0 (no badge) for the
+  // rest. Reads the shared store so a live notification re-renders the count.
+  function badgeCount(href: string): number {
+    if (href === '/notifications') return badges.notifications;
+    if (href === '/messages') return badges.messages;
+    return 0;
+  }
 
   const current = $derived(page.url.pathname);
   // Home only counts as active on an exact match; every other link highlights
@@ -75,9 +104,21 @@
     <!-- Hide auth-only routes from logged-out visitors. -->
     {#each links as l (l.href)}
       {#if !l.auth || user}
-        <a href={l.href} class="link" class:active={active(l.href)}>{l.label}</a>
+        <a href={l.href} class="link" class:active={active(l.href)}>
+          <svg class="ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{@html icons[l.icon]}</svg>
+          {l.label}
+          {#if badgeCount(l.href) > 0}
+            <span class="nav-badge">{badgeCount(l.href) > 99 ? '99+' : badgeCount(l.href)}</span>
+          {/if}
+        </a>
       {/if}
     {/each}
+    {#if isAdmin}
+      <a href="/admin" class="link link-admin" class:active={active('/admin')}>
+        <svg class="ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{@html icons.admin}</svg>
+        /admin
+      </a>
+    {/if}
 
     <!-- Footer swaps between the account block and the log in / sign up CTAs. -->
     <div class="foot">
@@ -195,6 +236,34 @@
     padding: var(--space-2) var(--space-3);
     border-left: 2px solid transparent;
     color: var(--color-text-dim);
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  /* The leading line-icon. Dimmer than the label so the text still leads; it
+     picks up the accent along with the label on hover/active since both use
+     currentColor. */
+  .ico {
+    flex-shrink: 0;
+    opacity: 0.7;
+  }
+  .link:hover .ico,
+  .link.active .ico {
+    opacity: 1;
+  }
+  /* Unread count pill on /notifications and /messages. Pushed to the row's
+     trailing edge so the icon+label column stays aligned. */
+  .nav-badge {
+    margin-left: auto;
+    font-size: 0.68rem;
+    line-height: 1;
+    min-width: 1.1rem;
+    padding: 3px 5px;
+    border-radius: 999px;
+    text-align: center;
+    background: var(--color-accent);
+    color: var(--color-accent-contrast, #fff);
+    font-weight: 600;
   }
   .link:hover {
     color: var(--color-text);
@@ -312,13 +381,28 @@
   .account-add:hover {
     color: var(--color-accent);
   }
+  /* Settings is an <a>, log out is a <button> wrapped in a <form>. A two-column
+     grid gives each action an identical track so the buttons match width
+     instead of sizing to their label text. */
   .me-actions {
-    display: flex;
-    align-items: center;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: var(--space-2);
   }
   .me-actions form {
     margin: 0;
+  }
+  /* The button is nested in the form, so stretch it to fill its grid cell. */
+  .me-actions form .btn {
+    width: 100%;
+  }
+  /* Center each label, and pin the button's line-height: a <button> doesn't
+     inherit the body line-height the way the <a> does, so without this the two
+     end up different heights. */
+  .me-actions > .btn,
+  .me-actions form .btn {
+    justify-content: center;
+    line-height: 1.45;
   }
   /* Quiet by default, accent on hover; the license forbids hiding this. */
   .attribution {

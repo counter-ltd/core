@@ -16,7 +16,6 @@ import { Hono } from 'hono';
 import {
   db,
   posts,
-  media,
   likes,
   reposts,
   topics,
@@ -46,6 +45,7 @@ import {
   createNotification,
   recordView,
 } from '../services/content.ts';
+import { attachPostMedia, releasePostMedia } from '../services/media.ts';
 import type { AppEnv } from '../types.ts';
 
 export const postRoutes = new Hono<AppEnv>();
@@ -126,19 +126,10 @@ postRoutes.post('/', requireAuth, async (c) => {
     .returning();
   if (!created) throw errors.internal('Failed to create post');
 
+  // Resolve the uploaded objects, copy their metadata onto media rows, and pin
+  // them so the GC sweep leaves them alone now that a post holds them.
   if (input.media?.length) {
-    await db.insert(media).values(
-      input.media.map((m) => ({
-        postId: created.id,
-        userId,
-        url: m.url,
-        mimeType: m.mimeType,
-        width: m.width ?? null,
-        height: m.height ?? null,
-        sizeBytes: m.sizeBytes ?? null,
-        altText: m.altText ?? null,
-      })),
-    );
+    await attachPostMedia(created.id, userId, input.media);
   }
 
   // Parse hashtags into the tag tables and notify anyone @-mentioned in the
@@ -216,6 +207,9 @@ postRoutes.delete('/:id', requireAuth, async (c) => {
     .update(posts)
     .set({ deleted: true, updatedAt: new Date() })
     .where(eq(posts.id, id));
+  // Release the post's media so its blobs can be reclaimed. The media rows stay
+  // (the soft-deleted post keeps its shape); only the refcounts drop.
+  await releasePostMedia(id);
   return c.json({ ok: true });
 });
 
@@ -299,14 +293,27 @@ postRoutes.post('/:id/repost', requireAuth, async (c) => {
   const id = c.req.param('id');
   const row = await getPostOr404(id);
 
+  // A bare repost (no body, just a repostOf pointer) carries no content of its
+  // own, so reposting one should repost the underlying original, not wrap the
+  // wrapper. Without this you'd get a posts row pointing at another bare repost;
+  // unreposting the inner one hard-deletes its row and the FK set-null orphans
+  // this one into a bodyless, targetless ghost that renders as an empty card.
+  const targetId = row.body === null && row.repostOf ? row.repostOf : id;
+  const target = targetId === id ? row : await getPostOr404(targetId);
+
   const inserted = await db
     .insert(reposts)
-    .values({ userId, postId: id })
+    .values({ userId, postId: targetId })
     .onConflictDoNothing()
     .returning();
   if (inserted.length > 0) {
-    await db.insert(posts).values({ userId, repostOf: id });
-    await createNotification({ userId: row.userId, type: 'repost', actorId: userId, postId: id });
+    await db.insert(posts).values({ userId, repostOf: targetId });
+    await createNotification({
+      userId: target.userId,
+      type: 'repost',
+      actorId: userId,
+      postId: targetId,
+    });
   }
   return c.json({ ok: true, reposted: true });
 });
@@ -356,9 +363,12 @@ postRoutes.get('/:id/thread', async (c) => {
 
   // Serialize ancestors, the post, and replies in one batch to avoid N+1, then
   // pick each group back out of the returned map.
+  // shallow=true: the thread view lists replies explicitly, so topReplies on
+  // any post in this batch would just duplicate what's already rendered.
   const all = await serializePosts(
     [...ancestorIds, id, ...replyRows.map((r) => r.id)],
     viewerId,
+    true,
   );
 
   const post = all.get(id);
@@ -390,18 +400,7 @@ postRoutes.post('/:id/replies', requireAuth, async (c) => {
   if (!created) throw errors.internal('Failed to create reply');
 
   if (input.media?.length) {
-    await db.insert(media).values(
-      input.media.map((m) => ({
-        postId: created.id,
-        userId,
-        url: m.url,
-        mimeType: m.mimeType,
-        width: m.width ?? null,
-        height: m.height ?? null,
-        sizeBytes: m.sizeBytes ?? null,
-        altText: m.altText ?? null,
-      })),
-    );
+    await attachPostMedia(created.id, userId, input.media);
   }
 
   await syncPostTags(created.id, input.body);

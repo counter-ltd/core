@@ -66,10 +66,10 @@ enum APIResult<T: Sendable>: Sendable {
                 return "No internet connection."
             case .unexpectedStatus(let s):
                 return "Unexpected response (\(s))."
-            case .decodingFailed:
-                return "Response format error. Try updating the app."
-            case .unknown:
-                return "Something went wrong."
+            case .decodingFailed(let e):
+                return e.localizedDescription
+            case .unknown(let e):
+                return e.localizedDescription
             }
         }
     }

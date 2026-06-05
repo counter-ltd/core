@@ -16,7 +16,13 @@
     // Web origin the API points users back to (e.g. the email-verification link).
     "PUBLIC_WEB_URL": "https://counter.ltd",
     "JWT_EXPIRES_IN": "15m",
-    "JWT_REFRESH_EXPIRES_IN": "30d"
+    "JWT_REFRESH_EXPIRES_IN": "30d",
+    // OAuth app client IDs (public). Secrets go via `wrangler secret put`.
+    "GITHUB_CLIENT_ID": "Ov23liMcNylFsyUtSvNq",
+    "DISCORD_CLIENT_ID": "1512262961459368119",
+    // Public origin the media bucket is served from. Point this at the custom
+    // domain you attach to the R2 bucket; stored media URLs are built from it.
+    "MEDIA_PUBLIC_URL": "https://media.counter.ltd"
   },
   // Transactional email (the account-deletion confirmation the CSL requires).
   // Onboard the sending domain once before this works:
@@ -24,6 +30,17 @@
   // which provisions the SPF/DKIM/DMARC records. Until then the API still runs;
   // the send is guarded on this binding and skipped when it's absent.
   "send_email": [{ "name": "EMAIL" }],
+  // R2 bucket holding all user media (avatars, post photos), content-addressed
+  // under `objects/{sha256}`. Create it once with:
+  //   wrangler r2 bucket create counter-media
+  // then attach a custom domain (media.counter.ltd) and enable public access so
+  // the stored URLs resolve. The binding is simulated locally under `wrangler
+  // dev`; the plain Bun dev server has no R2, so uploads need wrangler.
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "counter-media" }],
+  // Hourly garbage collection of unreferenced media objects (the scheduled
+  // handler in worker.ts calls sweepStaleObjects). Test locally with
+  // `wrangler dev --test-scheduled` then curl /__scheduled.
+  "triggers": { "crons": ["0 * * * *"] },
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
@@ -34,7 +51,40 @@
       // (the value is ignored by a trust-auth server).
       "localConnectionString": "postgres://x:local@localhost:5432/counter"
     }
+  ],
+  // Tunnel Talk signaling relay. One DO instance per active session, keyed by
+  // session ID. Uses new_sqlite_classes (the current default for new DOs) even
+  // though this DO uses only the WebSocket API and no SQLite storage.
+  "durable_objects": {
+    "bindings": [
+      { "name": "TUNNEL_SIGNALING", "class_name": "TunnelSignaling" },
+      // One instance per conversation, keyed by the two participants' sorted
+      // user ids. Relays live messages, typing, and presence. WebSocket only,
+      // no SQLite storage.
+      { "name": "CONVERSATION_HUB", "class_name": "ConversationHub" },
+      // One instance per user, keyed by user id. Pushes the live notification
+      // feed (bell badge, lists) to every client that user has open.
+      { "name": "NOTIFICATION_HUB", "class_name": "NotificationHub" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["TunnelSignaling"] },
+    { "tag": "v2", "new_sqlite_classes": ["ConversationHub"] },
+    { "tag": "v3", "new_sqlite_classes": ["NotificationHub"] }
   ]
-  // Secrets (JWT_SECRET, JWT_REFRESH_SECRET) come from .dev.vars locally and
-  // `wrangler secret put` in production — never commit them.
+  // Secrets come from .dev.vars locally and `wrangler secret put` in production.
+  // Never commit them. Required: JWT_SECRET, JWT_REFRESH_SECRET, MESSAGE_ENCRYPTION_KEY.
+  // Optional OAuth (leave unset to disable those flows):
+  //   wrangler secret put GITHUB_CLIENT_ID
+  //   wrangler secret put GITHUB_CLIENT_SECRET
+  //   wrangler secret put DISCORD_CLIENT_ID
+  //   wrangler secret put DISCORD_CLIENT_SECRET
+  // Optional Tunnel Talk TURN (Cloudflare Calls). Without these, WebRTC uses
+  // public STUN only, which fails behind symmetric NAT / enterprise firewalls:
+  //   wrangler secret put TURN_KEY_ID
+  //   wrangler secret put TURN_KEY_SECRET
+  //
+  // Local dev: Durable Objects only run under `wrangler dev`, not `bun run dev:api`.
+  // Tunnel Talk signaling (the /tunnel/:id/signal WebSocket) is unavailable when
+  // the API is served by the Bun dev server. Use `wrangler dev` to test it end to end.
 }

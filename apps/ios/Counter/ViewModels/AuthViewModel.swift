@@ -8,6 +8,7 @@
 
 import Foundation
 import Observation
+import AuthenticationServices
 
 @Observable
 final class AuthViewModel {
@@ -83,6 +84,54 @@ final class AuthViewModel {
         handle(result)
     }
 
+    // Retained for the lifetime of the ASWebAuthenticationSession. The session
+    // holds a weak reference to its context provider, so we must keep this alive.
+    private var webAuthContext: WebAuthContext?
+
+    /// Open the provider's OAuth consent page and sign in (or create an account).
+    ///
+    /// Uses ASWebAuthenticationSession with the counter:// custom scheme. The API
+    /// redirects to counter://auth/callback?code=X after the user approves, which
+    /// the session intercepts and returns here for exchange.
+    func oauthSignIn(provider: OAuthProvider) async {
+        guard let url = URL(string: "\(APIClient.baseURL)/auth/\(provider.rawValue)?mobile=true") else { return }
+
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            let callbackURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+                let context = WebAuthContext()
+                webAuthContext = context
+                let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "counter") { url, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else if let url { continuation.resume(returning: url) }
+                }
+                session.presentationContextProvider = context
+                // Use the shared browser session so GitHub/Discord credentials from
+                // Safari carry over; the user doesn't have to log in twice.
+                session.prefersEphemeralWebBrowserSession = false
+                session.start()
+            }
+
+            guard
+                let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: true),
+                let code = components.queryItems?.first(where: { $0.name == "code" })?.value
+            else {
+                errorMessage = "Sign-in failed. Please try again."
+                return
+            }
+
+            let result: APIResult<AuthResponse> = await env.apiClient.request(.oauthExchangeCode(code: code))
+            handle(result)
+        } catch ASWebAuthenticationSessionError.canceledLogin {
+            // User dismissed the sheet — no error message needed.
+        } catch {
+            errorMessage = "Sign-in failed. Please try again."
+        }
+    }
+
     private func handle(_ result: APIResult<AuthResponse>) {
         switch result {
         case .success(let auth):
@@ -98,5 +147,20 @@ final class AuthViewModel {
         case .networkError:
             errorMessage = result.errorMessage
         }
+    }
+}
+
+// MARK: - WebAuthContext
+
+/// Provides the presentation anchor for ASWebAuthenticationSession.
+///
+/// Stored as a strong reference on AuthViewModel so the session's weak pointer
+/// to its context provider stays valid for the full OAuth round-trip.
+private final class WebAuthContext: NSObject, ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow } ?? UIWindow()
     }
 }

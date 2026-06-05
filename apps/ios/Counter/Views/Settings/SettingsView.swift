@@ -1,13 +1,10 @@
 /**
- Settings root: profile editing, appearance, notifications, privacy, account
- switcher, sign out, and account deletion.
+ Settings root: navigation hub for profile, appearance, notifications, privacy,
+ connections, account management, and account deletion.
 
- The account switcher mirrors the web's nav footer. Accounts are shown as
- a list; tapping one switches immediately. A "Add account" row pushes to
- `AuthFlowView` in add-account mode.
-
- Privacy navigates to `DevicesView` where the user controls which devices
- receive push notifications. Registration is always opt-in from there.
+ Each major area is a dedicated sub-page. The account switcher mirrors the web
+ nav footer — tapping an account switches immediately, and "Add account" pushes
+ AuthFlowView in add-account mode.
  */
 
 import SwiftUI
@@ -15,15 +12,9 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(\.counterTheme) private var theme
-    @State private var displayName: String = ""
-    @State private var bio: String = ""
-    @State private var avatarUrl: String = ""
-    @State private var isSaving: Bool = false
-    @State private var saveError: String?
     @State private var showDeleteConfirm = false
     @State private var deleteConfirmText = ""
     @State private var showAddAccount = false
-    @State private var notifyVM: NotificationSettingsViewModel?
 
     var body: some View {
         ZStack {
@@ -34,6 +25,9 @@ struct SettingsView: View {
                 appearanceSection
                 notificationsSection
                 privacySection
+                connectionsSection
+                integrationsSection
+                adminSection
                 accountsSection
                 dangerSection
                 aboutSection
@@ -44,15 +38,6 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            prefillProfile()
-            // Lazy-init and load the toggles the first time Settings appears.
-            if notifyVM == nil {
-                let vm = NotificationSettingsViewModel(env: env)
-                notifyVM = vm
-                Task { await vm.load() }
-            }
-        }
         .sheet(isPresented: $showAddAccount) {
             // Dismiss the sheet once the new account is signed in; the app is
             // already authenticated, so nothing else would close it.
@@ -75,30 +60,13 @@ struct SettingsView: View {
 
     private var profileSection: some View {
         Section("Profile") {
-            VStack(alignment: .leading, spacing: CounterSpacing.md) {
-                labeledField("Display name", text: $displayName)
-                labeledField("Bio", text: $bio)
-                labeledField("Avatar URL", text: $avatarUrl, keyboard: .URL)
-
-                if let error = saveError {
-                    Text(error)
-                        .font(CounterFont.body(13))
-                        .foregroundStyle(theme.danger)
-                }
-
-                Button {
-                    Task { await saveProfile() }
-                } label: {
-                    if isSaving {
-                        ProgressView().tint(.black)
-                    } else {
-                        Text("Save changes")
-                    }
-                }
-                .counterPrimaryButton(isLoading: isSaving)
-                .disabled(isSaving)
+            NavigationLink {
+                ProfileSettingsView()
+            } label: {
+                Label("Edit profile", systemImage: "person.circle")
+                    .font(CounterFont.body(14))
+                    .foregroundStyle(theme.text)
             }
-            .padding(.vertical, CounterSpacing.sm)
             .listRowBackground(theme.surface)
         }
     }
@@ -116,45 +84,17 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder
     private var notificationsSection: some View {
-        Section {
-            if let notifyVM {
-                @Bindable var vm = notifyVM
-                Toggle("Likes", isOn: $vm.prefs.like)
-                Toggle("Reposts", isOn: $vm.prefs.repost)
-                Toggle("Replies", isOn: $vm.prefs.reply)
-                Toggle("New followers", isOn: $vm.prefs.follow)
-                Toggle("Mentions", isOn: $vm.prefs.mention)
-                Toggle("Direct messages", isOn: $vm.prefs.message)
-
-                if let error = vm.errorMessage {
-                    Text(error)
-                        .font(CounterFont.body(13))
-                        .foregroundStyle(theme.danger)
-                }
-
-                Button {
-                    Task { await vm.save() }
-                } label: {
-                    if vm.isSaving {
-                        ProgressView().tint(.black)
-                    } else {
-                        Text("Save")
-                    }
-                }
-                .counterPrimaryButton(isLoading: vm.isSaving)
-                .disabled(vm.isSaving)
+        Section("Notifications") {
+            NavigationLink {
+                NotificationSettingsView()
+            } label: {
+                Label("Notifications", systemImage: "bell")
+                    .font(CounterFont.body(14))
+                    .foregroundStyle(theme.text)
             }
-        } header: {
-            Text("Notifications")
-        } footer: {
-            Text("Choose what you're notified about, in the app and on your phone. Turning a type off stops it everywhere.")
+            .listRowBackground(theme.surface)
         }
-        .tint(theme.accent)
-        .font(CounterFont.body(14))
-        .foregroundStyle(theme.text)
-        .listRowBackground(theme.surface)
     }
 
     private var privacySection: some View {
@@ -172,6 +112,32 @@ struct SettingsView: View {
                 DevicesView()
             } label: {
                 Label("Devices", systemImage: "iphone")
+                    .font(CounterFont.body(14))
+                    .foregroundStyle(theme.text)
+            }
+            .listRowBackground(theme.surface)
+        }
+    }
+
+    private var connectionsSection: some View {
+        Section("Connections") {
+            NavigationLink {
+                ConnectionsView()
+            } label: {
+                Label("Connected platforms", systemImage: "link")
+                    .font(CounterFont.body(14))
+                    .foregroundStyle(theme.text)
+            }
+            .listRowBackground(theme.surface)
+        }
+    }
+
+    private var integrationsSection: some View {
+        Section("Integrations") {
+            NavigationLink {
+                IntegrationsView()
+            } label: {
+                Label("Integrations", systemImage: "puzzlepiece.extension")
                     .font(CounterFont.body(14))
                     .foregroundStyle(theme.text)
             }
@@ -235,6 +201,24 @@ struct SettingsView: View {
         }
     }
 
+    // Only rendered for accounts that hold at least one admin permission.
+    // @ViewBuilder so it collapses to nothing for regular users.
+    @ViewBuilder
+    private var adminSection: some View {
+        if env.authStore.currentUser?.isAdmin == true {
+            Section("Admin") {
+                NavigationLink {
+                    AdminView()
+                } label: {
+                    Label("Control panel", systemImage: "shield.lefthalf.filled")
+                        .font(CounterFont.body(14))
+                        .foregroundStyle(theme.text)
+                }
+                .listRowBackground(theme.surface)
+            }
+        }
+    }
+
     private var dangerSection: some View {
         Section("Danger zone") {
             Button("Delete account", role: .destructive) {
@@ -247,62 +231,34 @@ struct SettingsView: View {
 
     private var aboutSection: some View {
         Section("About") {
-            Link(destination: URL(string: "https://counter.ltd")!) {
-                HStack {
-                    Text("Built with Counter")
-                        .font(CounterFont.mono(13))
-                        .foregroundStyle(theme.textDim)
-                    Spacer()
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 11))
-                        .foregroundStyle(theme.textDim)
-                }
+            NavigationLink {
+                AlgorithmView()
+            } label: {
+                Label("The algorithm", systemImage: "function")
+                    .font(CounterFont.body(14))
+                    .foregroundStyle(theme.text)
             }
             .listRowBackground(theme.surface)
+
+            externalLink(label: "Changelog", url: "https://counter.ltd/changelog")
+            externalLink(label: "Your data", url: "https://counter.ltd/data")
+            externalLink(label: "counter.ltd", url: "https://counter.ltd")
         }
     }
 
-    // MARK: - Helpers
-
-    private func labeledField(_ label: String, text: Binding<String>, keyboard: UIKeyboardType = .default) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(CounterFont.mono(11))
-                .foregroundStyle(theme.textDim)
-            TextField(label, text: text)
-                .font(CounterFont.body(14))
-                .keyboardType(keyboard)
-                .autocapitalization(.none)
-                .counterInput()
+    @ViewBuilder
+    private func externalLink(label: String, url: String) -> some View {
+        Link(destination: URL(string: url)!) {
+            HStack {
+                Text(label)
+                    .font(CounterFont.body(14))
+                    .foregroundStyle(theme.text)
+                Spacer()
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.textDim)
+            }
         }
-    }
-
-    private func prefillProfile() {
-        guard let user = env.authStore.currentUser else { return }
-        displayName = user.displayName ?? ""
-        bio = user.bio ?? ""
-        avatarUrl = user.avatarUrl ?? ""
-    }
-
-    private func saveProfile() async {
-        isSaving = true
-        saveError = nil
-        defer { isSaving = false }
-
-        let result: APIResult<PrivateUser> = await env.apiClient.request(
-            .updateProfile(
-                displayName: displayName.isEmpty ? nil : displayName,
-                bio: bio.isEmpty ? nil : bio,
-                avatarUrl: avatarUrl.isEmpty ? nil : avatarUrl
-            )
-        )
-        switch result {
-        case .success(let user):
-            env.authStore.updateUser(user)
-        case .apiError(let e):
-            saveError = e.message
-        case .networkError:
-            saveError = result.errorMessage
-        }
+        .listRowBackground(theme.surface)
     }
 }

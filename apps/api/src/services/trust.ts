@@ -18,6 +18,7 @@ import type { Integration, TrustBadge } from '@counter/types';
 const PLATFORM_LABELS: Record<string, string> = {
   website: 'Website',
   github: 'GitHub',
+  discord: 'Discord',
   bandcamp: 'Bandcamp',
   soundcloud: 'SoundCloud',
   letterboxd: 'Letterboxd',
@@ -30,25 +31,32 @@ const PLATFORM_LABELS: Record<string, string> = {
 export function serializeIntegration(row: {
   id: string;
   platform: string;
+  platformUsername: string;
   platformUrl: string | null;
   verified: boolean;
+  displayed: boolean;
 }): Integration {
   return {
     id: row.id,
     platform: row.platform as Integration['platform'],
     url: row.platformUrl,
+    username: row.platformUsername,
     verified: row.verified,
+    displayed: row.displayed,
   };
 }
 
 /**
  * Build the badge list for one user.
  *
+ * Only verified integrations with `displayed = true` appear; the user can
+ * hide any badge without removing the underlying link.
+ *
  * @param userId         Whose badges to compute.
  * @param emailVerified  The user's `verified` flag, passed in so we don't re-read
  *                       a row the caller already has.
  * @returns              Verified-email badge (if any) followed by one badge per
- *                       verified linked account.
+ *                       displayed, verified linked account.
  */
 export async function getTrustBadges(userId: string, emailVerified: boolean): Promise<TrustBadge[]> {
   const badges: TrustBadge[] = [];
@@ -57,13 +65,20 @@ export async function getTrustBadges(userId: string, emailVerified: boolean): Pr
   const links = await db
     .select()
     .from(integrations)
-    .where(and(eq(integrations.userId, userId), eq(integrations.verified, true)));
+    .where(
+      and(
+        eq(integrations.userId, userId),
+        eq(integrations.verified, true),
+        eq(integrations.displayed, true),
+      ),
+    );
   for (const l of links) {
     badges.push({
       kind: 'link',
       label: PLATFORM_LABELS[l.platform] ?? l.platform,
       detail: l.platformUsername,
       href: l.platformUrl ?? undefined,
+      platform: l.platform,
     });
   }
   return badges;

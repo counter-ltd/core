@@ -252,3 +252,8 @@ hr {
   border-top: 1px solid var(--color-border);
   margin: var(--space-4) 0;
 }
+/* Chat thread is a fixed-height column; the root layout's decorative bottom
+   padding would make the shell scrollable and push the compose bar out of view. */
+body.chat-page .main {
+  padding-bottom: 0;
+}

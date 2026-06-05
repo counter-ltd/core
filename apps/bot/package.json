@@ -1,0 +1,14 @@
+{
+  "name": "@counter/bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thing Two gateway bot: replies when @mentioned in Discord.",
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "google-auth-library": "^9.15.0"
+  }
+}

@@ -71,6 +71,10 @@ struct ConversationView: View {
     @State private var showEncryptionInfo = false
     @State private var showClearConfirm = false
     @State private var showDeleteConfirm = false
+    @State private var showDeclineConfirm = false
+    @State private var showTunnelTalk = false
+    @State private var tunnelSessionId: String?
+    @State private var tunnelIsInitiator = false
 
     private var encryptionLevel: EncryptionLevel {
         guard vm.partnerDeviceKeys != nil else { return .loading }
@@ -86,18 +90,37 @@ struct ConversationView: View {
             // glassEffect has message content to refract, while still reserving
             // enough inset that the last message isn't hidden behind the bar.
             messageList
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    sendBar
-                }
+                .safeAreaInset(edge: .bottom, spacing: 0) { AnyView(bottomBar) }
 
             if vm.isLoading && vm.messages.isEmpty {
                 decryptingOverlay
+            }
+        }
+        // Incoming Tunnel Talk invite: shown as a top banner the recipient must
+        // accept before the session opens, never auto-joined.
+        .overlay(alignment: .top) {
+            if !showTunnelTalk, vm.pendingTunnelInvite != nil {
+                tunnelInviteBanner
             }
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 presenceTitle
+            }
+            // Tunnel Talk invite button — shown only when partner is online and
+            // the conversation is active. Uses a separate function to avoid a
+            // generic type-check timeout inside the ToolbarContentBuilder.
+            ToolbarItem(placement: .topBarTrailing) {
+                if vm.partnerIsOnline,
+                   vm.convInfo?.status == .active {
+                    Button {
+                        Task { await sendTunnelInvite() }
+                    } label: {
+                        Image(systemName: "bolt.horizontal.circle")
+                            .foregroundStyle(theme.accent)
+                    }
+                }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -119,6 +142,9 @@ struct ConversationView: View {
             // Mark read on appear rather than on each message load to avoid
             // multiple API calls when paginating back through history.
             await vm.markRead()
+            // Open the live channel so new messages, typing, and presence arrive
+            // without a reload. The token comes from the main-actor auth store here.
+            vm.startLive(token: env.authStore.accessToken ?? "")
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.userDidTakeScreenshotNotification)) { _ in
             Task { await vm.reportScreenshot() }
@@ -145,6 +171,53 @@ struct ConversationView: View {
         } message: {
             Text("The entire conversation with @\(vm.partnerUsername) will be permanently deleted for both parties.")
         }
+        .confirmationDialog("Decline request?", isPresented: $showDeclineConfirm, titleVisibility: .visible) {
+            Button("Decline", role: .destructive) {
+                Task {
+                    await vm.declineRequest()
+                    dismiss()
+                }
+            }
+        } message: {
+            Text("The message request from @\(vm.partnerUsername) will be removed.")
+        }
+        .fullScreenCover(isPresented: $showTunnelTalk) {
+            if let sessionId = tunnelSessionId {
+                TunnelTalkView(
+                    vm: TunnelTalkViewModel(
+                        sessionId: sessionId,
+                        accessToken: env.authStore.accessToken ?? "",
+                        isInitiator: tunnelIsInitiator,
+                        partnerDeviceKeys: vm.partnerDeviceKeys ?? [],
+                        myDeviceKeys: vm.myDeviceKeys,
+                        env: env
+                    ),
+                    onEnd: {
+                        showTunnelTalk = false
+                        tunnelSessionId = nil
+                        vm.clearActiveTunnel()
+                        // Reload so the thread shows the Tunnel Talk end marker
+                        // and any saved transcript.
+                        Task { await vm.loadInitial() }
+                    }
+                )
+            }
+        }
+        .onDisappear {
+            vm.stopLive()
+        }
+        // The accept path sets activeTunnelSession; open the session view when it
+        // appears. The session is already 'active' on the server by this point.
+        .onChange(of: vm.activeTunnelSession?.id) { (_: String?, newId: String?) in
+            guard let id = newId, !showTunnelTalk else { return }
+            tunnelSessionId = id
+            tunnelIsInitiator = false
+            showTunnelTalk = true
+        }
+        // Relay typing as the draft changes so the partner sees a typing bubble.
+        .onChange(of: vm.draftBody) {
+            vm.handleTypingInput()
+        }
     }
 
     // MARK: - Presence title
@@ -157,7 +230,7 @@ struct ConversationView: View {
                     .font(CounterFont.body(15))
                     .fontWeight(.semibold)
 
-                if vm.partnerProfile?.presence?.isOnline == true {
+                if vm.partnerIsOnline {
                     Circle()
                         .fill(Color.green)
                         .frame(width: 7, height: 7)
@@ -165,7 +238,7 @@ struct ConversationView: View {
             }
 
             // Show last seen only when the user is offline and the field is visible.
-            if vm.partnerProfile?.presence?.isOnline != true,
+            if !vm.partnerIsOnline,
                let lastSeenAt = vm.partnerProfile?.presence?.lastSeenAt {
                 Text(timeAgo(lastSeenAt))
                     .font(CounterFont.mono(11))
@@ -211,24 +284,32 @@ struct ConversationView: View {
             HStack(spacing: CounterSpacing.sm) {
                 Button {
                     showEncryptionInfo = false
-                    showClearConfirm = true
+                    // Popover dismissal is animated; wait for it to finish before
+                    // presenting the confirmation dialog or it gets dropped on iOS.
+                    Task {
+                        try? await Task.sleep(nanoseconds: 350_000_000)
+                        showClearConfirm = true
+                    }
                 } label: {
                     Text("Clear")
                         .font(CounterFont.mono(13))
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
                 .tint(.orange)
 
                 Button {
                     showEncryptionInfo = false
-                    showDeleteConfirm = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 350_000_000)
+                        showDeleteConfirm = true
+                    }
                 } label: {
                     Text("Delete")
                         .font(CounterFont.mono(13))
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
                 .tint(.red)
             }
             .padding(CounterSpacing.lg)
@@ -281,24 +362,31 @@ struct ConversationView: View {
 
     // MARK: - Decrypting overlay
 
+    // Green for E2EE, blue for server-side. Stays neutral (gray) while
+    // partnerDeviceKeys is still in flight so the observable state change that
+    // sets partnerDeviceKeys (before messages arrive) gives a brief correct flash.
+    private var decryptingLockColor: Color {
+        switch encryptionLevel {
+        case .loading:              .gray.opacity(0.5)
+        case .e2ee, .e2eeSingle:   .green
+        case .serverSide:           .blue
+        }
+    }
+
     // Shown on initial load before any messages are ready. Pagination ("load
     // older") reuses isLoading but messages is already populated, so this
     // overlay only fires on the blank first-open gap.
     private var decryptingOverlay: some View {
-        VStack(spacing: CounterSpacing.lg) {
+        VStack(spacing: CounterSpacing.sm) {
             Image(systemName: "lock.fill")
                 .font(.system(size: 44, weight: .light))
-                .foregroundStyle(theme.accent)
+                .foregroundStyle(decryptingLockColor)
                 .symbolEffect(.pulse, options: .repeating)
+                .animation(.easeInOut(duration: 0.3), value: decryptingLockColor)
 
             Text("Decrypting")
                 .font(CounterFont.mono(15))
                 .foregroundStyle(theme.textDim)
-
-            ProgressView()
-                .progressViewStyle(.linear)
-                .tint(theme.accent)
-                .frame(width: 160)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -323,6 +411,19 @@ struct ConversationView: View {
                         messageBubble(message)
                             .id(message.id)
                     }
+
+                    // Partner's typing bubble. Ephemeral, driven only by the
+                    // live socket, never part of the message list.
+                    if vm.partnerTyping {
+                        HStack {
+                            TypingDots(color: theme.textDim)
+                                .padding(.horizontal, CounterSpacing.md)
+                                .padding(.vertical, CounterSpacing.sm)
+                                .background(theme.surface, in: RoundedRectangle(cornerRadius: 16))
+                            Spacer(minLength: 0)
+                        }
+                        .id("typing-indicator")
+                    }
                 }
                 .padding(.horizontal, CounterSpacing.lg)
                 .padding(.vertical, CounterSpacing.md)
@@ -331,6 +432,12 @@ struct ConversationView: View {
                 // Scroll to the latest message when a new one arrives.
                 if let last = vm.messages.last {
                     withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                }
+            }
+            .onChange(of: vm.partnerTyping) {
+                // Keep the typing bubble in view when it appears.
+                if vm.partnerTyping {
+                    withAnimation { proxy.scrollTo("typing-indicator", anchor: .bottom) }
                 }
             }
         }
@@ -356,6 +463,10 @@ struct ConversationView: View {
                 let isOwn = message.sender.id == env.authStore.currentUser?.id
                 return isOwn ? "You deleted the conversation" : "@\(message.sender.username) deleted the conversation"
             }())
+        case .tunnelStarted:
+            tunnelInviteEntry(message)
+        case .tunnelEnded:
+            tunnelMarker(sessionId: message.tunnelSessionId)
         case .message:
             regularBubble(message)
         }
@@ -401,6 +512,89 @@ struct ConversationView: View {
         }
     }
 
+    // MARK: - Request UI
+
+    /// Shown to the recipient of a pending request. Accept activates the conversation;
+    /// decline deletes it and returns to the inbox.
+    private var requestBanner: some View {
+        VStack(spacing: CounterSpacing.sm) {
+            Text("@\(vm.partnerUsername) wants to send you a message.")
+                .font(CounterFont.body(14))
+                .foregroundStyle(theme.text)
+                .multilineTextAlignment(.center)
+
+            HStack(spacing: CounterSpacing.md) {
+                Button("Decline") {
+                    showDeclineConfirm = true
+                }
+                .font(CounterFont.body(15).weight(.medium))
+                .foregroundStyle(theme.danger)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, CounterSpacing.sm)
+                .background(theme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: CounterRadius.md))
+
+                Button("Accept") {
+                    Task { await vm.acceptRequest() }
+                }
+                .font(CounterFont.body(15).weight(.semibold))
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, CounterSpacing.sm)
+                .background(theme.accent)
+                .clipShape(RoundedRectangle(cornerRadius: CounterRadius.md))
+            }
+        }
+        .padding(.horizontal, CounterSpacing.lg)
+        .padding(.top, CounterSpacing.md)
+        .padding(.bottom, CounterSpacing.lg)
+        .background {
+            if #available(iOS 26, *) {
+                Color.clear.ignoresSafeArea(edges: .bottom)
+            } else {
+                Rectangle().fill(.ultraThinMaterial).ignoresSafeArea(edges: .bottom)
+            }
+        }
+    }
+
+    /// Shown to the sender while their request is pending acceptance.
+    private var pendingNotice: some View {
+        HStack(spacing: CounterSpacing.sm) {
+            Image(systemName: "clock")
+                .font(.system(size: 14))
+                .foregroundStyle(theme.textDim)
+            Text("Waiting for @\(vm.partnerUsername) to accept your request.")
+                .font(CounterFont.body(13))
+                .foregroundStyle(theme.textDim)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, CounterSpacing.lg)
+        .padding(.top, CounterSpacing.md)
+        .padding(.bottom, CounterSpacing.lg)
+        .background {
+            if #available(iOS 26, *) {
+                Color.clear.ignoresSafeArea(edges: .bottom)
+            } else {
+                Rectangle().fill(.ultraThinMaterial).ignoresSafeArea(edges: .bottom)
+            }
+        }
+    }
+
+    // MARK: - Bottom bar
+
+    // Extracted from body so the type-checker doesn't time out on the
+    // deeply-nested optional chain inside a ZStack + safeAreaInset closure.
+    @ViewBuilder
+    private var bottomBar: some View {
+        let status = vm.convInfo?.status
+        let isInbound = vm.convInfo?.isInboundRequest == true
+        if status == .request {
+            if isInbound { requestBanner } else { pendingNotice }
+        } else {
+            sendBar
+        }
+    }
+
     // MARK: - Send bar
 
     private var sendBar: some View {
@@ -437,5 +631,159 @@ struct ConversationView: View {
                     .ignoresSafeArea(edges: .bottom)
             }
         }
+    }
+
+    // MARK: - Tunnel Talk actions
+
+    /// Calls POST /tunnel/:username/invite and opens TunnelTalkView as the initiator.
+    /// Extracted from the toolbar closure to avoid a ToolbarContentBuilder type-check timeout.
+    private func sendTunnelInvite() async {
+        struct InviteResponse: Decodable { let sessionId: String }
+        let result: APIResult<InviteResponse> = await env.apiClient.request(
+            .tunnelInvite(username: vm.partnerUsername)
+        )
+        if case .success(let r) = result {
+            tunnelSessionId = r.sessionId
+            tunnelIsInitiator = true
+            showTunnelTalk = true
+        }
+    }
+
+    // MARK: - Tunnel Talk invite banner
+
+    /// Banner shown to the recipient of an incoming invite. Accept flips the
+    /// session to active on the server (vm.acceptTunnel), which triggers the
+    /// onChange that opens TunnelTalkView. Decline removes the invite.
+    private var tunnelInviteBanner: some View {
+        HStack(spacing: CounterSpacing.md) {
+            Image(systemName: "bolt.horizontal.circle.fill")
+                .foregroundStyle(theme.accent)
+            Text("@\(vm.partnerUsername) invited you to Tunnel Talk")
+                .font(CounterFont.body(13))
+                .foregroundStyle(theme.text)
+                .lineLimit(2)
+
+            Spacer(minLength: CounterSpacing.sm)
+
+            Button("Decline") {
+                if let invite = vm.pendingTunnelInvite {
+                    Task { await vm.declineTunnel(session: invite) }
+                }
+            }
+            .font(CounterFont.body(13))
+            .foregroundStyle(theme.textDim)
+
+            Button("Join") {
+                if let invite = vm.pendingTunnelInvite {
+                    Task { await vm.acceptTunnel(session: invite) }
+                }
+            }
+            .font(CounterFont.body(13).weight(.semibold))
+            .foregroundStyle(theme.accent)
+        }
+        .padding(.horizontal, CounterSpacing.lg)
+        .padding(.vertical, CounterSpacing.md)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: CounterRadius.md))
+        .padding(.horizontal, CounterSpacing.md)
+        .padding(.top, CounterSpacing.sm)
+    }
+
+    // MARK: - Tunnel Talk
+
+    /// Blue invite pill shown in the thread when a Tunnel Talk invite is sent.
+    /// The server inserts a `tunnel_started` message at invite time (not on connect),
+    /// so this is the permanent record that an invite was issued.
+    private func tunnelInviteEntry(_ message: DirectMessage) -> some View {
+        let isOwn = message.sender.id == env.authStore.currentUser?.id
+        let label = isOwn
+            ? "You invited @\(vm.partnerUsername) to Tunnel Talk"
+            : "@\(message.sender.username) invited you to Tunnel Talk"
+        return HStack {
+            Spacer()
+            HStack(spacing: CounterSpacing.xs) {
+                Image(systemName: "bolt.horizontal.circle.fill")
+                    .font(.system(size: 11))
+                Text(label)
+                    .font(CounterFont.mono(12))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, CounterSpacing.md)
+            .padding(.vertical, CounterSpacing.xs)
+            .background(Color.blue.opacity(0.7))
+            .clipShape(Capsule())
+            Spacer()
+        }
+    }
+
+    /// Centered pill marking the end of a Tunnel Talk session, with optional
+    /// inline transcript bubbles when the session was saved.
+    @ViewBuilder
+    private func tunnelMarker(sessionId: String?) -> some View {
+        VStack(spacing: CounterSpacing.xs) {
+            HStack {
+                Spacer()
+                Text("── Tunnel Talk Ended ──")
+                    .font(CounterFont.mono(11))
+                    .foregroundStyle(theme.textDim)
+                    .padding(.horizontal, CounterSpacing.md)
+                    .padding(.vertical, CounterSpacing.xs)
+                    .background(theme.surface)
+                    .clipShape(Capsule())
+                Spacer()
+            }
+
+            // If a transcript is saved for this session, show inline message bubbles.
+            // If not (or the session ID is missing), show the asterisk placeholder.
+            if let sid = sessionId, let session = vm.tunnelSessions[sid], !session.messages.isEmpty {
+                ForEach(session.messages) { tm in
+                    let isOwn = tm.sender.id == env.authStore.currentUser?.id
+                    HStack {
+                        if isOwn { Spacer(minLength: 60) }
+                        Text(tm.body)
+                            .font(CounterFont.body(14))
+                            .foregroundStyle(isOwn ? Color.black : theme.text)
+                            .padding(.horizontal, CounterSpacing.md)
+                            .padding(.vertical, CounterSpacing.sm)
+                            .background(isOwn ? theme.accent : theme.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: CounterRadius.lg))
+                        if !isOwn { Spacer(minLength: 60) }
+                    }
+                }
+            } else {
+                // Asterisk: no transcript was saved for this session.
+                HStack {
+                    Spacer()
+                    Text("*")
+                        .font(CounterFont.mono(14))
+                        .foregroundStyle(theme.textDim)
+                    Spacer()
+                }
+            }
+        }
+    }
+}
+
+/// Three dots that fade in sequence, the body of the partner's typing bubble.
+/// Its own view so the repeating animation owns its state without re-triggering
+/// the parent.
+private struct TypingDots: View {
+    let color: Color
+    @State private var animating = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(color)
+                    .frame(width: 6, height: 6)
+                    .opacity(animating ? 1 : 0.25)
+                    .animation(
+                        .easeInOut(duration: 0.7).repeatForever().delay(Double(i) * 0.2),
+                        value: animating
+                    )
+            }
+        }
+        .onAppear { animating = true }
     }
 }

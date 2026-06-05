@@ -1,10 +1,9 @@
 /**
- Online-status and last-seen settings.
+ Privacy settings: online status, last seen, and who can message you.
 
- Both features are off by default. Each has an independent toggle and a
- visibility picker. The heartbeat interval slider controls how often the
- client signals activity and how long the server waits before marking
- the user offline.
+ All three features are configured here and saved together via PUT /users/me/presence.
+ Online status and last seen are off by default. Messaging privacy defaults to
+ everyone and controls whether others must send a message request first.
  */
 
 import SwiftUI
@@ -24,6 +23,8 @@ struct PresenceSettingsView: View {
                     onlineStatusSection(vm: vm)
                     lastSeenSection(vm: vm)
                     heartbeatSection(vm: vm)
+                    typingIndicatorsSection(vm: vm)
+                    messagingPrivacySection(vm: vm)
                     saveSection(vm: vm)
                 } else {
                     Section {
@@ -36,7 +37,7 @@ struct PresenceSettingsView: View {
             .scrollContentBackground(.hidden)
             .background(theme.bg)
         }
-        .navigationTitle("Online Status")
+        .navigationTitle("Privacy")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             if vm == nil {
@@ -148,6 +149,45 @@ struct PresenceSettingsView: View {
             }
             .counterPrimaryButton(isLoading: vm.isSaving)
             .disabled(vm.isSaving)
+        }
+        .listRowBackground(theme.surface)
+    }
+
+    @ViewBuilder
+    private func typingIndicatorsSection(vm: PresenceSettingsViewModel) -> some View {
+        @Bindable var vm = vm
+        Section {
+            Toggle("Send typing indicators", isOn: $vm.settings.typingIndicatorsEnabled)
+                .font(CounterFont.body(14))
+                .foregroundStyle(theme.text)
+        } header: {
+            Text("Typing")
+        } footer: {
+            Text("Let the person you're chatting with see when you're typing. On by default. Turning this off stops your typing from being sent; it's never stored.")
+                .font(CounterFont.body(12))
+        }
+        .tint(theme.accent)
+        .listRowBackground(theme.surface)
+    }
+
+    @ViewBuilder
+    private func messagingPrivacySection(vm: PresenceSettingsViewModel) -> some View {
+        @Bindable var vm = vm
+        Section {
+            Picker("Who can message me", selection: $vm.settings.messagingPrivacy) {
+                ForEach(MessagingPrivacy.allCases, id: \.self) { option in
+                    Text(option.label).tag(option)
+                }
+            }
+            .font(CounterFont.body(14))
+            .foregroundStyle(theme.text)
+            .pickerStyle(.menu)
+            .tint(theme.accent)
+        } header: {
+            Text("Messages")
+        } footer: {
+            Text(vm.settings.messagingPrivacy.footerText)
+                .font(CounterFont.body(12))
         }
         .listRowBackground(theme.surface)
     }

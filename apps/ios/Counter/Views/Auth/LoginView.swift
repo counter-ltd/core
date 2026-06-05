@@ -54,6 +54,37 @@ struct LoginView: View {
                         }
                         .counterPrimaryButton(isLoading: vm.isLoading)
                         .disabled(vm.isLoading)
+
+                        HStack {
+                            Rectangle().fill(theme.border).frame(height: 1)
+                            Text("or").font(CounterFont.mono(11)).foregroundStyle(theme.textDim)
+                            Rectangle().fill(theme.border).frame(height: 1)
+                        }
+                        .padding(.vertical, CounterSpacing.xs)
+
+                        Button {
+                            Task { await vm.oauthSignIn(provider: .github) }
+                        } label: {
+                            Label {
+                                Text("Continue with GitHub")
+                            } icon: {
+                                Image("github-logo").brandLogo()
+                            }
+                        }
+                        .counterSecondaryButton()
+                        .disabled(vm.isLoading)
+
+                        Button {
+                            Task { await vm.oauthSignIn(provider: .discord) }
+                        } label: {
+                            Label {
+                                Text("Continue with Discord")
+                            } icon: {
+                                Image("discord-logo").brandLogo()
+                            }
+                        }
+                        .counterSecondaryButton()
+                        .disabled(vm.isLoading)
                     }
                     .padding(.horizontal, CounterSpacing.xl)
 

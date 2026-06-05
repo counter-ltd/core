@@ -175,6 +175,53 @@ export async function decryptMessage(stored: string, hexKey: string): Promise<st
   return new TextDecoder().decode(plaintext);
 }
 
+// --- generic field encryption ---
+
+// Same AES-256-GCM scheme as messages, just named for the wider job: any
+// at-rest column we want unreadable in a database dump (email, OAuth provider
+// email, push tokens). encryptField writes the `v1:` envelope; decryptField
+// reads it back and passes through anything without the prefix unchanged, so a
+// pre-encryption value never throws.
+export { encryptMessage as encryptField, decryptMessage as decryptField };
+
+// --- blind index ---
+
+// HMAC keys are imported once per isolate, same reasoning as the AES cache.
+const hmacKeyCache = new Map<string, CryptoKey>();
+
+async function importHmacKey(hexKey: string): Promise<CryptoKey> {
+  const hit = hmacKeyCache.get(hexKey);
+  if (hit) return hit;
+  const raw = hexToBytes(hexKey);
+  if (raw.length !== 32) throw new Error('BLIND_INDEX_KEY must be 64 hex chars (32 bytes)');
+  const key = await crypto.subtle.importKey('raw', raw, { name: 'HMAC', hash: 'SHA-256' }, false, [
+    'sign',
+  ]);
+  hmacKeyCache.set(hexKey, key);
+  return key;
+}
+
+/**
+ * Deterministic keyed hash of a value, for looking up an encrypted column.
+ *
+ * AES-GCM uses a random IV per write, so two encryptions of the same email
+ * produce different ciphertext, which means you can't query by it. The blind
+ * index solves that: HMAC-SHA256 is deterministic, so the same input always
+ * maps to the same hex digest, which we store in a unique column and match on at
+ * login / signup / OAuth-link time. It's keyed (not a plain SHA-256) so a leaked
+ * dump can't be dictionary-attacked to recover which emails are present without
+ * also stealing BLIND_INDEX_KEY, which lives only in the Worker secret store.
+ *
+ * @param value   The plaintext to index (lower-case it first for emails).
+ * @param hexKey  The 64-char hex BLIND_INDEX_KEY.
+ * @returns Lower-case hex digest, safe to drop into a unique text column.
+ */
+export async function blindIndex(value: string, hexKey: string): Promise<string> {
+  const key = await importHmacKey(hexKey);
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(value));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 /**
  * Whether a stored message body is an E2EE ciphertext that the server cannot
  * decrypt. Matches both `v2:` (single-device, legacy) and `v3:` (multi-device)

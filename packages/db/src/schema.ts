@@ -31,16 +31,31 @@ import {
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 
-// People with accounts. username and email are both unique; passwordHash holds
-// the PBKDF2 string (format defined by the API's hasher, mirrored in seed.ts).
+// People with accounts. passwordHash holds the PBKDF2 string (format defined by
+// the API's hasher, mirrored in seed.ts). Null for OAuth-only accounts that have
+// never set a password.
+//
+// `email` is encrypted at rest (AES-256-GCM, `v1:` envelope) so a database dump
+// never spills addresses in plain text. The ciphertext is randomised per write
+// and so can't be queried; `emailIndex` holds a deterministic blind index (keyed
+// HMAC of the lower-cased address) which carries the uniqueness constraint and
+// every lookup at login / signup / OAuth-link. See lib/crypto.ts.
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   username: text('username').notNull().unique(),
   displayName: text('display_name'),
   bio: text('bio'),
+  // `avatarUrl` is the served value (what clients render). `avatarObjectId`
+  // links the R2-backed blob behind it so we can refcount and garbage-collect
+  // the object when the avatar is replaced. Null when the avatar is an external
+  // URL (seed data, or never set), in which case nothing in R2 is held.
   avatarUrl: text('avatar_url'),
-  email: text('email').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
+  avatarObjectId: uuid('avatar_object_id').references((): AnyPgColumn => mediaObjects.id, {
+    onDelete: 'set null',
+  }),
+  email: text('email').notNull(),
+  emailIndex: text('email_index').notNull().unique(),
+  passwordHash: text('password_hash'),
   verified: boolean('verified').default(false).notNull(),
   // --- presence ---
   // Both features default off. Visibility controls who can see each one.
@@ -51,9 +66,126 @@ export const users = pgTable('users', {
   // Updated by POST /users/me/heartbeat while online status or last seen is on.
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
   heartbeatIntervalSeconds: integer('heartbeat_interval_seconds').default(300).notNull(),
+  // --- messaging privacy ---
+  // Controls who can start a new conversation with this user. 'everyone' allows
+  // direct messages from anyone. 'followers' restricts direct messages to people
+  // who follow this user; others must send a message request instead. 'nobody'
+  // blocks all incoming messages and requests.
+  messagingPrivacy: text('messaging_privacy').default('everyone').notNull(),
+  // When on, this user's typing is relayed to the person they're chatting with
+  // over the conversation socket. Defaults on so the indicator works out of the
+  // box; the privacy toggle lets anyone opt out. Enforced server-side: the live
+  // route reads this and the DO drops typing frames from users who turned it off,
+  // so a patched client can't leak typing the user disabled.
+  typingIndicatorsEnabled: boolean('typing_indicators_enabled').default(true).notNull(),
+  // --- moderation status ---
+  // 'active' for everyone normally; 'suspended' and 'banned' are set by admins
+  // and block sign-in (enforced at login and token refresh). A suspension reads
+  // `suspendedUntil` for its expiry; a ban is indefinite and leaves it null.
+  status: text('status').default('active').notNull(), // USER_STATUSES in @counter/config
+  statusReason: text('status_reason'),
+  suspendedUntil: timestamp('suspended_until', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+// Permission groups. A group carries a subset of the fixed PERMISSION_KEYS
+// (@counter/config) in its jsonb `permissions` array; a user's effective set is
+// the union across every group they belong to. `isSystem` groups (admin,
+// moderator) can be renamed and re-permissioned but never deleted, so a site
+// can't lock itself out of its own admin panel.
+export const groups = pgTable(
+  'groups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    slug: text('slug').notNull().unique(),
+    name: text('name').notNull(),
+    description: text('description'),
+    // Array of permission keys. jsonb (not a join table) because the set is
+    // small, always read whole, and validated against the code-side enum on write.
+    permissions: jsonb('permissions').$type<string[]>().notNull(),
+    // A colour token for the group's badge in the UI. Null falls back to a default.
+    color: text('color'),
+    isSystem: boolean('is_system').default(false).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('groups_slug_idx').on(t.slug)],
+);
+
+// Group memberships. Join table, many-to-many: a user can hold several groups
+// and a group has many members. `assignedBy` records which admin granted it for
+// the audit trail; it set-nulls if that admin's account is later deleted.
+export const userGroups = pgTable(
+  'user_groups',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    assignedBy: uuid('assigned_by').references(() => users.id, { onDelete: 'set null' }),
+    assignedAt: timestamp('assigned_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // PK (user, group) keeps a membership unique and answers "this user's groups"
+    // fast; the reverse index serves "members of this group".
+    primaryKey({ columns: [t.userId, t.groupId] }),
+    index('user_groups_group_id_idx').on(t.groupId),
+  ],
+);
+
+// Append-only record of every privileged action an admin takes. Nothing here is
+// ever updated or deleted in normal operation, so it's the trustworthy answer to
+// "who did what". actorId set-nulls (rather than cascades) so the log outlives
+// the admin account that wrote it; targetId is plain text because the thing it
+// points at (a post, a user, a group) may itself be gone by the time you read.
+export const adminAuditLog = pgTable(
+  'admin_audit_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+    action: text('action').notNull(), // e.g. 'user.ban', 'group.update', 'post.remove'
+    targetType: text('target_type'), // 'user' | 'post' | 'group' | 'report'
+    targetId: text('target_id'),
+    // One-line human summary, rendered straight in the log view.
+    summary: text('summary').notNull(),
+    // Optional structured before/after or extra context, shown on expand.
+    metadata: jsonb('metadata'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // The log view reads newest-first; the actor index serves "this admin's actions".
+    index('admin_audit_log_created_at_idx').on(t.createdAt),
+    index('admin_audit_log_actor_id_idx').on(t.actorId),
+  ],
+);
+
+// User-submitted reports about a post or another user, feeding the moderation
+// queue. reporterId set-nulls so a report survives the reporter deleting their
+// account; resolvedBy records which moderator closed it.
+export const reports = pgTable(
+  'reports',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reporterId: uuid('reporter_id').references(() => users.id, { onDelete: 'set null' }),
+    targetType: text('target_type').notNull(), // REPORT_TARGET_TYPES in @counter/config
+    targetId: uuid('target_id').notNull(),
+    reason: text('reason').notNull(), // REPORT_REASONS
+    detail: text('detail'),
+    status: text('status').default('open').notNull(), // REPORT_STATUSES
+    resolvedBy: uuid('resolved_by').references(() => users.id, { onDelete: 'set null' }),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Queue view: open reports newest-first, served from (status, createdAt).
+    index('reports_status_idx').on(t.status, t.createdAt),
+    // "All reports about this thing", for the detail panel and dedupe.
+    index('reports_target_idx').on(t.targetType, t.targetId),
+  ],
+);
 
 // Active login sessions, one row per refresh token. We store only the hash of
 // the token, never the token itself, so a database leak can't be replayed.
@@ -171,6 +303,14 @@ export const posts = pgTable(
     // Soft-delete flag. We hide the post but keep the row so replies and reposts
     // that point at it stay valid.
     deleted: boolean('deleted').default(false).notNull(),
+    // True when a moderator removed the post (as opposed to the author deleting
+    // it). Both set `deleted`, but this distinguishes the two so the author can't
+    // un-remove a moderated post and the moderation queue can show its state.
+    removedByAdmin: boolean('removed_by_admin').default(false).notNull(),
+    // Structured metadata for posts created via integrations (e.g. "Share to
+    // Counter" from Discord). Null for regular posts. Clients that understand
+    // it render a rich card; others fall back to the text body as-is.
+    sourceMeta: jsonb('source_meta'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -186,9 +326,46 @@ export const posts = pgTable(
   ],
 );
 
-// Images and other attachments hanging off a post. The bytes live in S3; this
-// table holds the URL and metadata. userId is denormalized from the post so
-// ownership checks don't need a join.
+// The physical layer of media storage: one row per unique blob in R2, keyed by
+// the sha256 of its bytes (which is also the R2 object key, `objects/{sha256}`).
+// Content-addressing means identical bytes collapse to a single object: the same
+// Discord avatar shared by ten users, or the same image posted twice, is stored
+// once. `refCount` tracks how many things point at this object (post media rows,
+// user avatars, cached Discord profiles); when it falls to 0 the cron sweep
+// deletes the object after a grace window. See services/media.ts.
+export const mediaObjects = pgTable(
+  'media_objects',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // Lower-case hex sha256 of the stored bytes. Unique so dedup is a single
+    // indexed lookup on upload, and it doubles as the R2 key suffix.
+    sha256: text('sha256').notNull().unique(),
+    mimeType: text('mime_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    // Best-effort, parsed from the image header at upload. Null when the format
+    // wasn't one we sniff dimensions for.
+    width: integer('width'),
+    height: integer('height'),
+    // How many references hold this object alive. Starts at 0 on upload (the
+    // blob exists but nothing points at it yet), so an upload that's never
+    // attached is reclaimed by the sweep.
+    refCount: integer('ref_count').default(0).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    // Bumped on every ref change. The sweep keys off this so a freshly-uploaded
+    // object gets a grace window before it's eligible for deletion.
+    lastReferencedAt: timestamp('last_referenced_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  // The GC sweep scans for refCount 0 ordered by age, so index both together.
+  (t) => [index('media_objects_gc_idx').on(t.refCount, t.lastReferencedAt)],
+);
+
+// Images and other attachments hanging off a post. The bytes live in R2 behind
+// a `media_objects` row; this table holds the served URL and per-attachment
+// metadata. userId is denormalized from the post so ownership checks don't need
+// a join. `objectId` links the physical blob so deleting the post can drop its
+// refcount; null only for legacy/external rows that predate R2.
 export const media = pgTable(
   'media',
   {
@@ -199,6 +376,7 @@ export const media = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    objectId: uuid('object_id').references(() => mediaObjects.id, { onDelete: 'set null' }),
     url: text('url').notNull(),
     mimeType: text('mime_type').notNull(),
     // Dimensions and size are nullable: not every upload reports them, and they
@@ -352,6 +530,12 @@ export const notificationPreferences = pgTable(
 // Registered push devices, one row per APNs token. We store only the opaque
 // token Apple gives us, never anything that describes the device or the person.
 // Deleting the user takes their devices with them.
+//
+// `token` is encrypted at rest (AES-256-GCM, `v1:` envelope) so a dump can't be
+// used to push spam to anyone's device. The APNs sender decrypts it just before
+// the call to Apple. `tokenIndex` is the blind index (keyed HMAC of the raw
+// token) that carries uniqueness and powers the upsert-on-reregister and the
+// delete-on-signout, since the ciphertext itself isn't queryable.
 export const devices = pgTable(
   'devices',
   {
@@ -360,7 +544,8 @@ export const devices = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     platform: text('platform').notNull(), // see DEVICE_PLATFORMS in @counter/config ('ios')
-    token: text('token').notNull().unique(),
+    token: text('token').notNull(),
+    tokenIndex: text('token_index').notNull(),
     // User-supplied label so multiple devices are distinguishable. Null for
     // devices registered before this column was added.
     name: text('name'),
@@ -369,10 +554,44 @@ export const devices = pgTable(
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
-    // Unique token so re-registering upserts one row; a device can't double up.
-    uniqueIndex('devices_token_idx').on(t.token),
+    // Unique on the blind index so re-registering upserts one row; a device
+    // can't double up, and the conflict target has something queryable to hit.
+    uniqueIndex('devices_token_idx').on(t.tokenIndex),
     // Fan-out lookup: every device for a user when delivering a push.
     index('devices_user_id_idx').on(t.userId),
+  ],
+);
+
+// Browser Web Push subscriptions, the web equivalent of the iOS `devices` rows.
+// One row per subscribed browser. The `endpoint` (the push service URL that
+// uniquely identifies the browser to its push provider) is encrypted at rest the
+// same way device tokens are, with a blind index carrying uniqueness and the
+// upsert conflict target. `p256dh` and `auth` are the subscription's own public
+// key and shared secret, the RFC 8291 inputs needed to encrypt each payload;
+// they're useless to anyone without the matching endpoint, so they're stored
+// as-is. Registration is opt-in, the same as devices.
+export const webPushSubscriptions = pgTable(
+  'web_push_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // Encrypted (v1: envelope). The push service URL we POST each push to.
+    endpoint: text('endpoint').notNull(),
+    // Blind index of the endpoint; carries uniqueness and the upsert target.
+    endpointIndex: text('endpoint_index').notNull(),
+    // base64url client public key (p256dh) and auth secret from the subscription.
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Unique on the blind index so re-subscribing the same browser upserts.
+    uniqueIndex('web_push_subscriptions_endpoint_idx').on(t.endpointIndex),
+    // Fan-out lookup: every subscription for a user when delivering a push.
+    index('web_push_subscriptions_user_id_idx').on(t.userId),
   ],
 );
 
@@ -429,6 +648,9 @@ export const integrations = pgTable(
     platformUsername: text('platform_username').notNull(),
     platformUrl: text('platform_url'),
     verified: boolean('verified').default(false).notNull(),
+    // True when the user wants this badge visible on their public profile.
+    // Defaults to true so a freshly-verified link shows immediately.
+    displayed: boolean('displayed').default(true).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -519,6 +741,13 @@ export const conversations = pgTable(
     // The row stays so the other party still sees the thread.
     participantADeletedAt: timestamp('participant_a_deleted_at', { withTimezone: true }),
     participantBDeletedAt: timestamp('participant_b_deleted_at', { withTimezone: true }),
+    // Message request state. 'active' is a normal two-way conversation; 'request'
+    // means the initiator sent one message and is waiting for the recipient to
+    // accept before either side can send more.
+    status: text('status').default('active').notNull(),
+    // The user who sent the initial message request. Null once the conversation
+    // becomes active. SET NULL on user deletion so the row survives.
+    requestedBy: uuid('requested_by').references(() => users.id, { onDelete: 'set null' }),
   },
   (t) => [
     // The uniqueness guarantee: one conversation per ordered pair.
@@ -544,9 +773,16 @@ export const messages = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     body: text('body').notNull(),
-    // 'message' for normal messages; 'screenshot' for transcript entries added
-    // when the viewer screenshots the thread.
+    // 'message' for normal messages; 'screenshot' for screenshot notifications;
+    // 'cleared'/'deleted' for per-user history actions; 'tunnel_started'/
+    // 'tunnel_ended' for Tunnel Talk session markers (linked via tunnelSessionId).
     kind: text('kind').notNull().default('message'),
+    // Set when kind is 'tunnel_started' or 'tunnel_ended'. Links the system
+    // message to its session so the thread can look up the transcript.
+    // SET NULL so markers survive if the session row is somehow removed.
+    tunnelSessionId: uuid('tunnel_session_id').references(() => tunnelSessions.id, {
+      onDelete: 'set null',
+    }),
     read: boolean('read').default(false).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -558,6 +794,179 @@ export const messages = pgTable(
   ],
 );
 
+// A Tunnel Talk session between two users. Status flows: pending → active → ended
+// (or pending → declined). SDP/ICE signals are never stored here; they pass
+// through the signaling Durable Object and are discarded once the peer connection
+// is established.
+export const tunnelSessions = pgTable(
+  'tunnel_sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // Deleting the conversation removes the session and cascades to tunnelMessages.
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    // SET NULL so the row survives account deletion; status/timestamps stay intact.
+    initiatorId: uuid('initiator_id').references(() => users.id, { onDelete: 'set null' }),
+    participantId: uuid('participant_id').references(() => users.id, { onDelete: 'set null' }),
+    // 'pending': invite sent, waiting for participant.
+    // 'active': both peers connected via WebRTC.
+    // 'ended': session closed by either party.
+    // 'declined': participant rejected the invite (or it expired).
+    status: text('status').notNull().default('pending'),
+    // Both default false. When both flip to true, the client-side WebRTC layer
+    // starts buffering messages for upload after the session ends.
+    initiatorConsent: boolean('initiator_consent').notNull().default(false),
+    participantConsent: boolean('participant_consent').notNull().default(false),
+    // Set when the WebRTC data channel opens (both peers connected).
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Pending-invite poll: "is there a pending session for this conversation?".
+    index('tunnel_sessions_conversation_status_idx').on(t.conversationId, t.status),
+    // User-scoped queries: "all sessions initiated by / involving this user".
+    index('tunnel_sessions_initiator_idx').on(t.initiatorId),
+    index('tunnel_sessions_participant_idx').on(t.participantId),
+  ],
+);
+
+// Messages uploaded after a Tunnel Talk session ends, when both parties consented
+// to saving the transcript. Bodies are the same E2EE ciphertext format as regular
+// DMs — the server never sees plaintext. CASCADE DELETE is the revocation
+// mechanism: deleting from this table (triggered by consent revocation or
+// conversation deletion) removes the entire transcript atomically.
+export const tunnelMessages = pgTable(
+  'tunnel_messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tunnelSessionId: uuid('tunnel_session_id')
+      .notNull()
+      // Revocation and conversation deletion both flow through this cascade.
+      .references(() => tunnelSessions.id, { onDelete: 'cascade' }),
+    // SET NULL so transcript rows survive account deletion (the body is
+    // ciphertext anyway; sender identity in the UI comes from the body envelope).
+    senderId: uuid('sender_id').references(() => users.id, { onDelete: 'set null' }),
+    body: text('body').notNull(),
+    // Client-provided timestamp from when the message was sent P2P, not when
+    // it was uploaded. Uploaded in batches after session end.
+    sentAt: timestamp('sent_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    // Transcript fetch: all messages for a session, ordered chronologically.
+    index('tunnel_messages_session_sent_idx').on(t.tunnelSessionId, t.sentAt),
+  ],
+);
+
+// OAuth accounts linked to a Counter user. One row per (user, provider) pair.
+// Access and refresh tokens are stored encrypted with AES-256-GCM using the
+// same MESSAGE_ENCRYPTION_KEY as message bodies (format: v1:<iv>:<ciphertext>).
+export const oauthAccounts = pgTable(
+  'oauth_accounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      // Deleting a user removes their linked OAuth credentials.
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(), // 'github' | 'discord'
+    providerUserId: text('provider_user_id').notNull(),
+    providerUsername: text('provider_username'),
+    // Encrypted at rest (AES-256-GCM, `v1:` envelope) like users.email. It's
+    // display-only (shown on the settings page), never looked up by, so it needs
+    // no blind index. Decrypted in the route just before it's returned.
+    providerEmail: text('provider_email'),
+    // Both tokens are encrypted at rest. refreshToken is null for providers
+    // that don't issue one (GitHub classic tokens don't expire).
+    accessToken: text('access_token').notNull(),
+    refreshToken: text('refresh_token'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // One Counter account per OAuth identity, so the same GitHub user can't log
+    // into two different Counter accounts.
+    uniqueIndex('oauth_accounts_provider_user_idx').on(t.provider, t.providerUserId),
+    // One linked GitHub per Counter user — prevents linking the same platform twice.
+    uniqueIndex('oauth_accounts_user_provider_idx').on(t.userId, t.provider),
+    // "All linked accounts for this user" (settings page, disconnect).
+    index('oauth_accounts_user_id_idx').on(t.userId),
+  ],
+);
+
+// Short-lived CSRF state tokens for in-flight OAuth flows. One row per pending
+// redirect; consumed (deleted) in the callback. Two actions share this table:
+// 'login' for unauthenticated sign-in and 'connect' for linking an existing
+// Counter account (userId is set for connect, null for login).
+export const oauthStates = pgTable(
+  'oauth_states',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stateHash: text('state_hash').notNull(),
+    provider: text('provider').notNull(),
+    action: text('action').notNull(), // 'login' | 'connect'
+    // Null for login flows where no Counter session exists yet.
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('oauth_states_state_hash_idx').on(t.stateHash)],
+);
+
+// One-time codes issued after a successful OAuth login, redeemed by the client
+// via POST /auth/session/exchange to get a real JWT pair. Avoids putting tokens
+// in any URL. Only used for the 'login' action (the 'connect' action redirects
+// back to the already-logged-in session, so no code is needed).
+export const oauthSessionCodes = pgTable(
+  'oauth_session_codes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    codeHash: text('code_hash').notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('oauth_session_codes_code_hash_idx').on(t.codeHash)],
+);
+
+// Opt-in Discord bot (Thing Two) notifications. One row per user; absence means
+// the user has never enabled it. inGuild is cached from the bot membership check
+// so we don't call Discord's API on every notification delivery.
+export const discordBotSubscriptions = pgTable('discord_bot_subscriptions', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  enabled: boolean('enabled').notNull().default(false),
+  // Cached from the guild membership check. False until the user enables and
+  // passes the check; set false again if the bot gets a 403/404 on delivery.
+  inGuild: boolean('in_guild').notNull().default(false),
+  guildCheckedAt: timestamp('guild_checked_at', { withTimezone: true }),
+  // Separate from notification delivery (enabled). A user can receive Counter
+  // notifications on Discord without allowing the bot to post on their behalf.
+  postingEnabled: boolean('posting_enabled').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Per-Discord-account avatar cache. Keyed by the Discord snowflake so there's
+// exactly one row per account, which is what gives us "no duplicate account
+// photos" and "replace the old one when it changes". `avatarHash` is Discord's
+// own hash for the current avatar (null = they use a default avatar). When it
+// differs from what we have, we fetch the new image into a `media_objects` blob,
+// drop the old object's refcount, and point this row at the new one. The cached
+// `username`/`globalName` save a round-trip when rendering attribution offline.
+export const discordProfiles = pgTable('discord_profiles', {
+  discordUserId: text('discord_user_id').primaryKey(),
+  avatarHash: text('avatar_hash'),
+  objectId: uuid('object_id').references(() => mediaObjects.id, { onDelete: 'set null' }),
+  username: text('username'),
+  globalName: text('global_name'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 // Row type helpers the API builds queries and responses around. $inferSelect is
 // a full row; $inferInsert is what you need to insert (defaults optional).
 // Insert types only exist for tables the app actually inserts into by hand.
@@ -568,6 +977,9 @@ export type EmailVerification = typeof emailVerifications.$inferSelect;
 export type Post = typeof posts.$inferSelect;
 export type NewPost = typeof posts.$inferInsert;
 export type Media = typeof media.$inferSelect;
+export type MediaObject = typeof mediaObjects.$inferSelect;
+export type NewMediaObject = typeof mediaObjects.$inferInsert;
+export type DiscordProfile = typeof discordProfiles.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type NotificationPreference = typeof notificationPreferences.$inferSelect;
 export type Device = typeof devices.$inferSelect;
@@ -585,3 +997,19 @@ export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
+export type OAuthAccount = typeof oauthAccounts.$inferSelect;
+export type OAuthState = typeof oauthStates.$inferSelect;
+export type OAuthSessionCode = typeof oauthSessionCodes.$inferSelect;
+export type DiscordBotSubscription = typeof discordBotSubscriptions.$inferSelect;
+export type TunnelSession = typeof tunnelSessions.$inferSelect;
+export type NewTunnelSession = typeof tunnelSessions.$inferInsert;
+export type TunnelMessage = typeof tunnelMessages.$inferSelect;
+export type NewTunnelMessage = typeof tunnelMessages.$inferInsert;
+export type Group = typeof groups.$inferSelect;
+export type NewGroup = typeof groups.$inferInsert;
+export type UserGroup = typeof userGroups.$inferSelect;
+export type NewUserGroup = typeof userGroups.$inferInsert;
+export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
+export type NewAdminAuditLog = typeof adminAuditLog.$inferInsert;
+export type Report = typeof reports.$inferSelect;
+export type NewReport = typeof reports.$inferInsert;

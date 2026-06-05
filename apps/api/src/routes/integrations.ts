@@ -13,7 +13,7 @@
  */
 import { Hono } from 'hono';
 import { db, integrations, users, eq, and } from '@counter/db';
-import { addIntegrationSchema } from '@counter/types';
+import { addIntegrationSchema, patchIntegrationSchema } from '@counter/types';
 import type { Integration } from '@counter/types';
 import { body } from '../lib/validate.ts';
 import { errors } from '../lib/errors.ts';
@@ -42,15 +42,21 @@ integrationRoutes.get('/me', requireAuth, async (c) => {
   return c.json<Integration[]>(rows.map(serializeIntegration));
 });
 
-// A user's verified links by username (public). Unverified links stay private to
-// the owner so an unproven claim never shows up on someone's profile.
+// A user's verified, displayed links by username (public). Unverified and
+// hidden links stay private so unproven or toggled-off badges never leak.
 integrationRoutes.get('/:username', async (c) => {
   const target = await findUserByUsername(c.req.param('username'));
   if (!target) throw errors.notFound('User not found');
   const rows = await db
     .select()
     .from(integrations)
-    .where(and(eq(integrations.userId, target.id), eq(integrations.verified, true)));
+    .where(
+      and(
+        eq(integrations.userId, target.id),
+        eq(integrations.verified, true),
+        eq(integrations.displayed, true),
+      ),
+    );
   return c.json<Integration[]>(rows.map(serializeIntegration));
 });
 
@@ -103,6 +109,21 @@ integrationRoutes.post('/:id/verify', requireAuth, async (c) => {
     .set({ verified, updatedAt: new Date() })
     .where(eq(integrations.id, id));
   return c.json<Integration>(serializeIntegration({ ...row, verified }));
+});
+
+// Toggle whether a verified badge shows on the public profile. The link and
+// its verified state are untouched; only the display flag changes.
+integrationRoutes.patch('/:id', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  const id = c.req.param('id');
+  const input = await body(c, patchIntegrationSchema);
+  const [row] = await db
+    .update(integrations)
+    .set({ displayed: input.displayed, updatedAt: new Date() })
+    .where(and(eq(integrations.id, id), eq(integrations.userId, userId)))
+    .returning();
+  if (!row) throw errors.notFound('Link not found');
+  return c.json<Integration>(serializeIntegration(row));
 });
 
 // Remove a link. Scoped to the owner so an id alone can't delete someone else's.

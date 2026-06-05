@@ -21,7 +21,7 @@
   <h1>Everything here is readable.</h1>
   <p class="muted">
     Every post and profile is public, no login required. The feed is ordered by
-    <a href="/algorithm">weights you can read</a>, and a view is an anonymous tick — never tied
+    <a href="/about/algorithm">weights you can read</a>, and a view is an anonymous tick — never tied
     to you.
   </p>
 </header>

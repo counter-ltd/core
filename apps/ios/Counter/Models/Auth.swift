@@ -44,3 +44,41 @@ struct RefreshInput: Encodable, Sendable {
 struct LogoutInput: Encodable, Sendable {
     let refreshToken: String?
 }
+
+// MARK: - OAuth
+
+/// The two OAuth providers Counter supports.
+enum OAuthProvider: String, Codable, CaseIterable, Sendable {
+    case github
+    case discord
+
+    var displayName: String {
+        switch self {
+        case .github: return "GitHub"
+        case .discord: return "Discord"
+        }
+    }
+}
+
+/// Connected provider account info, returned by GET /auth/:provider/me.
+struct OAuthConnectedAccount: Decodable, Sendable {
+    let provider: OAuthProvider
+    let providerUsername: String?
+    let providerEmail: String?
+    let connectedAt: String
+}
+
+/// Response from POST /auth/:provider/connect/prepare.
+struct OAuthConnectPrepareResponse: Decodable, Sendable {
+    let authUrl: String
+}
+
+/// Body for POST /auth/:provider/connect/prepare.
+struct OAuthConnectPrepareInput: Encodable, Sendable {
+    let mobile: Bool
+}
+
+/// Body for POST /auth/session/exchange.
+struct OAuthSessionExchangeInput: Encodable, Sendable {
+    let code: String
+}

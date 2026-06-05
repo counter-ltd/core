@@ -30,6 +30,8 @@ struct MainTabView: View {
 
     @State private var notifVM: NotificationsViewModel?
     @State private var messagesVM: MessagesViewModel?
+    // One live socket for the whole session, feeding the tab badges and lists.
+    @State private var notificationLive: NotificationLiveClient?
 
     enum Tab { case home, search, messages, notifications, profile }
 
@@ -56,13 +58,36 @@ struct MainTabView: View {
             // Lazy-init so VMs start their loads after the tab bar appears.
             if notifVM == nil { notifVM = NotificationsViewModel(env: env) }
             if messagesVM == nil { messagesVM = MessagesViewModel(env: env) }
+            startNotificationLive()
         }
+        .onDisappear { notificationLive?.close(); notificationLive = nil }
         .onChange(of: env.pushRouter.pending) { _, destination in
             guard let destination else { return }
             route(to: destination)
             // Consume it so the same tap can't fire twice.
             env.pushRouter.pending = nil
         }
+    }
+
+    /// Open the live notification socket once and route each arrival to the
+    /// right place: the notifications list/badge, or a refresh of the inbox
+    /// badge for a message. Safe to call repeatedly; the guard keeps one socket.
+    private func startNotificationLive() {
+        guard notificationLive == nil else { return }
+        let token = env.authStore.accessToken ?? ""
+        guard !token.isEmpty else { return }
+
+        let client = NotificationLiveClient(token: token)
+        client.onNotification = { n in
+            if n.type == .message {
+                // A new message bumps the inbox badge; reload to recompute it.
+                Task { await messagesVM?.loadInitial() }
+            } else {
+                notifVM?.receiveLive(n)
+            }
+        }
+        notificationLive = client
+        client.connect()
     }
 
     /// Switch to the relevant tab and push the destination a tapped notification

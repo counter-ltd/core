@@ -10,9 +10,22 @@
  * serializers so the client gets full user and post objects, not bare ids.
  */
 import { Hono } from 'hono';
-import { db, notifications, notificationPreferences, eq, and, inArray, desc } from '@counter/db';
+import {
+  db,
+  notifications,
+  notificationPreferences,
+  messages,
+  conversations,
+  eq,
+  and,
+  or,
+  ne,
+  inArray,
+  desc,
+  count,
+} from '@counter/db';
 import { paginationQuerySchema, notificationPreferencesSchema } from '@counter/types';
-import type { Page, Notification, NotificationPreferences } from '@counter/types';
+import type { Page, Notification, NotificationPreferences, BadgeCounts } from '@counter/types';
 import { NOTIFICATION_TYPES } from '@counter/config';
 import type { NotificationType } from '@counter/config';
 import { body, query } from '../lib/validate.ts';
@@ -93,6 +106,61 @@ notificationRoutes.get('/', async (c) => {
     .filter((n): n is Notification => !!n);
 
   return c.json<Page<Notification>>({ data, nextCursor });
+});
+
+// --- badge counts ---
+
+// Unread counts for the nav badges, fetched once on load. The live socket keeps
+// them current after that. Notifications and messages are split so each nav item
+// shows its own count: message notifications are excluded from the notification
+// total since direct messages have their own badge.
+notificationRoutes.get('/badges', async (c) => {
+  const userId = requireUserId(c);
+
+  const [[{ value: notifCount } = { value: 0 }], [{ value: msgCount } = { value: 0 }]] =
+    await Promise.all([
+      db
+        .select({ value: count() })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.userId, userId),
+            eq(notifications.read, false),
+            ne(notifications.type, 'message'),
+          ),
+        ),
+      // Unread real messages from a partner in a conversation the user is in.
+      db
+        .select({ value: count() })
+        .from(messages)
+        .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+        .where(
+          and(
+            or(eq(conversations.participantA, userId), eq(conversations.participantB, userId)),
+            ne(messages.senderId, userId),
+            eq(messages.read, false),
+            eq(messages.kind, 'message'),
+          ),
+        ),
+    ]);
+
+  return c.json<BadgeCounts>({
+    notifications: Number(notifCount),
+    messages: Number(msgCount),
+  });
+});
+
+// --- live channel (WebSocket) ---
+
+// Upgrades to the user's NotificationHub so new notifications arrive live. The
+// hub is keyed by user id, so every socket on it is already this user's; no
+// per-socket identity needs forwarding.
+notificationRoutes.get('/live', async (c) => {
+  const userId = requireUserId(c);
+  if (!c.env.NOTIFICATION_HUB) throw errors.validation('Live updates are not available');
+  const ns = c.env.NOTIFICATION_HUB;
+  const stub = ns.get(ns.idFromName(userId));
+  return stub.fetch(new Request(new URL(c.req.url).toString(), c.req.raw));
 });
 
 // --- preferences ---

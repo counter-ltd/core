@@ -13,6 +13,7 @@
  */
 import { Hono } from 'hono';
 import { db, users, deviceKeys, eq } from '@counter/db';
+import { loadServerEnv } from '@counter/config/env';
 import {
   registerSchema,
   loginSchema,
@@ -31,6 +32,7 @@ import {
   rotateTokens,
   revokeByRefreshToken,
 } from '../lib/auth.ts';
+import { blindIndex, encryptField, decryptField } from '../lib/crypto.ts';
 import {
   issueEmailVerification,
   consumeEmailVerification,
@@ -76,6 +78,46 @@ async function fireVerificationEmail(
   );
 }
 
+/**
+ * Block a banned or actively-suspended account from signing in.
+ *
+ * A ban is permanent and always rejects. A suspension rejects only while its
+ * `suspendedUntil` is still in the future; once that passes, the account is
+ * quietly flipped back to 'active' and allowed through, so suspensions expire on
+ * their own without an admin having to lift them. Throws a 403 when access is
+ * denied; returns normally when the caller may proceed.
+ */
+async function enforceModerationStatus(row: {
+  id: string;
+  status: string;
+  statusReason: string | null;
+  suspendedUntil: Date | null;
+}): Promise<void> {
+  if (row.status === 'banned') {
+    throw errors.forbidden(
+      row.statusReason
+        ? `Your account has been banned: ${row.statusReason}`
+        : 'Your account has been banned.',
+    );
+  }
+  if (row.status === 'suspended') {
+    const until = row.suspendedUntil;
+    if (until && until.getTime() > Date.now()) {
+      throw errors.forbidden(
+        row.statusReason
+          ? `Your account is suspended until ${until.toISOString()}: ${row.statusReason}`
+          : `Your account is suspended until ${until.toISOString()}.`,
+      );
+    }
+    // The suspension has lapsed (or had no expiry recorded); reactivate and let
+    // the login continue.
+    await db
+      .update(users)
+      .set({ status: 'active', statusReason: null, suspendedUntil: null, updatedAt: new Date() })
+      .where(eq(users.id, row.id));
+  }
+}
+
 // --- register / login ---
 
 // Create an account and log it straight in, returning a token pair plus the
@@ -90,8 +132,13 @@ authRoutes.post('/register', async (c) => {
   });
   if (existing) throw errors.conflict('That username is taken');
 
+  // Email is encrypted at rest, so the duplicate check matches on its blind
+  // index, not the ciphertext column.
+  const loweredEmail = input.email.toLowerCase();
+  const env = loadServerEnv();
+  const emailIndex = await blindIndex(loweredEmail, env.BLIND_INDEX_KEY);
   const emailTaken = await db.query.users.findFirst({
-    where: eq(users.email, input.email.toLowerCase()),
+    where: eq(users.emailIndex, emailIndex),
   });
   if (emailTaken) throw errors.conflict('That email is already registered');
 
@@ -100,7 +147,8 @@ authRoutes.post('/register', async (c) => {
     .insert(users)
     .values({
       username: input.username,
-      email: input.email.toLowerCase(),
+      email: await encryptField(loweredEmail, env.MESSAGE_ENCRYPTION_KEY),
+      emailIndex,
       passwordHash,
       displayName: input.displayName ?? null,
     })
@@ -109,8 +157,9 @@ authRoutes.post('/register', async (c) => {
 
   // Send the "verify your email" link on the way out. It's optional and earns
   // only the ✦ badge, so it never blocks signup; the send itself is deferred and
-  // skips cleanly when no mail binding is configured.
-  await fireVerificationEmail(c, created);
+  // skips cleanly when no mail binding is configured. Pass the plain-text address
+  // we already have rather than the now-encrypted column on `created`.
+  await fireVerificationEmail(c, { ...created, email: loweredEmail });
 
   const tokens = await issueTokens(created.id);
   const user = await getPrivateUser(created.id);
@@ -126,9 +175,17 @@ authRoutes.post('/login', async (c) => {
   // is wrong, so an attacker can't probe which usernames exist. We still run
   // verifyPassword on a real hash when the user exists, which keeps the timing
   // roughly even between the two failure paths.
-  if (!row || !(await verifyPassword(input.password, row.passwordHash))) {
+  // passwordHash is null for OAuth-only accounts. Fail the same way as a wrong
+  // password so callers can't distinguish the two cases.
+  if (!row || !row.passwordHash || !(await verifyPassword(input.password, row.passwordHash))) {
     throw errors.unauthorized('Invalid credentials');
   }
+
+  // Moderation gate. A ban is indefinite; a suspension lifts itself once its
+  // expiry passes, so a lapsed suspension auto-reactivates here rather than
+  // needing an admin to clear it. Both rejections come after the password check
+  // so they can't be used to probe which accounts exist.
+  await enforceModerationStatus(row);
 
   const tokens = await issueTokens(row.id);
   const user = await getPrivateUser(row.id);
@@ -165,7 +222,9 @@ authRoutes.post('/verify/request', requireAuth, async (c) => {
     );
   }
 
-  await fireVerificationEmail(c, row);
+  // row.email is ciphertext; the mailer needs the real address.
+  const email = await decryptField(row.email, loadServerEnv().MESSAGE_ENCRYPTION_KEY);
+  await fireVerificationEmail(c, { ...row, email });
   return c.json({ ok: true });
 });
 
@@ -233,8 +292,10 @@ authRoutes.delete('/account', requireAuth, async (c) => {
   // it, and the on-screen confirmation still covers the license requirement.
   if (c.env.EMAIL && row?.email) {
     const name = row.displayName || row.username;
+    // Stored encrypted; decrypt the address so the confirmation has somewhere to go.
+    const email = await decryptField(row.email, loadServerEnv().MESSAGE_ENCRYPTION_KEY);
     c.executionCtx.waitUntil(
-      sendDeletionConfirmation(c.env.EMAIL, row.email, name).catch(() => {
+      sendDeletionConfirmation(c.env.EMAIL, email, name).catch(() => {
         // Already deleted; nothing to recover. Don't surface a mail error.
       }),
     );

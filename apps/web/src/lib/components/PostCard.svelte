@@ -17,7 +17,9 @@
    * Props:
    *   post         The post to render.
    *   currentUser  The signed-in viewer, or null. When null the action buttons
-   *                become "log in to..." links instead of live forms.
+   *                become "log in to..." links instead of live forms. Their
+   *                permissions also decide whether the bottom-right moderation
+   *                control shows (a moderator gets it, a normal user never does).
    *   redirectTo   Where the interact action returns to, so a like/repost lands
    *                you back on the page you did it from.
    *   nested       True when we're the embedded quote inside a repost.
@@ -25,6 +27,7 @@
   import type { Post, PrivateUser } from '@counter/types';
   import Avatar from './Avatar.svelte';
   import PostCard from './PostCard.svelte';
+  import DiscordQuoteCard from './DiscordQuoteCard.svelte';
   import { timeAgo, compact, linkify } from '$lib/format';
 
   let {
@@ -40,6 +43,56 @@
   } = $props();
 
   const permalink = $derived(`/${post.author.username}/post/${post.id}`);
+
+  // The per-post controls menu (bottom-right) is moderation-only for now, so it
+  // shows only when the viewer carries `posts.moderate`. A normal account has an
+  // empty permission list and never sees the icon. Gated like the rest of the
+  // bar to top-level cards so a quoted post can't be moderated from inside its
+  // wrapper. New post-scoped permissions slot in as extra menu items, same gate.
+  const canModerate = $derived(currentUser?.permissions.includes('posts.moderate') ?? false);
+  // Nuke is the hard, irreversible delete (post + all replies and reposts). It
+  // rides its own permission so a moderator with only soft-delete power can't
+  // reach it. The menu shows whenever the viewer has either capability.
+  const canNuke = $derived(currentUser?.permissions.includes('posts.nuke') ?? false);
+  const showControls = $derived((canModerate || canNuke) && !nested);
+
+  // Moderation state we flip locally so an action lands without a page reload.
+  // A nuke removes the card outright; remove/restore swap the body to/from the
+  // [deleted] tombstone. The `<form>`s still post for no-JS clients; with JS the
+  // handler below intercepts and updates these instead.
+  let nuked = $state(false);
+  let displayDeleted = $state(post.deleted);
+  let menuEl = $state<HTMLDetailsElement>();
+
+  /**
+   * Run one moderation action over fetch and update the card in place.
+   *
+   * `redirect: 'manual'` so we don't follow the endpoint's 303 back to a full
+   * page (the whole point is to avoid the reload, which is what lets a moderator
+   * nuke through a feed quickly). On failure the card is left untouched.
+   */
+  async function moderate(kind: 'remove' | 'restore' | 'nuke', event: Event) {
+    event.preventDefault();
+    if (kind === 'nuke') {
+      const ok = confirm(
+        'Nuke this post? It deletes the post and every reply and repost permanently. This cannot be undone.',
+      );
+      if (!ok) return;
+    }
+    menuEl?.removeAttribute('open');
+    try {
+      await fetch('/actions/moderate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ kind, postId: post.id, redirectTo }),
+        redirect: 'manual',
+      });
+      if (kind === 'nuke') nuked = true;
+      else displayDeleted = kind === 'remove';
+    } catch {
+      // Leave the card as-is; the moderator can retry.
+    }
+  }
 
   // $state instead of $derived so we can update these without triggering a
   // page reload. Cards are keyed by post.id so each instance starts fresh.
@@ -85,6 +138,7 @@
   }
 </script>
 
+{#if !nuked}
 <article class="post panel" class:nested>
   <div class="head">
     <Avatar user={post.author} size={nested ? 34 : 44} />
@@ -106,8 +160,12 @@
   <!-- linkify turns @mentions and #tags into anchors, hence the {@html}. It
        must sanitise its input since the body is user-authored. -->
   <a href={permalink} class="bodylink">
-    {#if post.deleted}
+    {#if displayDeleted}
       <p class="body deleted faint">[deleted]</p>
+    {:else if post.sourceMeta?.type === 'discord_share'}
+      <!-- Render the structured Discord quote card; the plain body is the fallback
+           for clients that don't understand sourceMeta. -->
+      <DiscordQuoteCard meta={post.sourceMeta} />
     {:else if post.body}
       <p class="body">{@html linkify(post.body)}</p>
     {/if}
@@ -164,11 +222,51 @@
       </a>
     </div>
   {/if}
+
+  <!-- Moderation menu, pinned bottom-right. <details> gives a dropdown with no
+       JS, so it works on the SSR'd page before hydration. The forms post to the
+       moderation action endpoint, which forwards to the admin API where the
+       permission is actually enforced. -->
+  {#if showControls}
+    <details class="controls" bind:this={menuEl}>
+      <summary class="ctl-toggle" title="Moderate" aria-label="Post controls">⋯</summary>
+      <div class="ctl-menu panel">
+        {#if canModerate}
+          {#if displayDeleted}
+            <form method="POST" action="/actions/moderate">
+              <input type="hidden" name="kind" value="restore" />
+              <input type="hidden" name="postId" value={post.id} />
+              <input type="hidden" name="redirectTo" value={redirectTo} />
+              <button class="ctl-item" onclick={(e) => moderate('restore', e)}>Restore post</button>
+            </form>
+          {:else}
+            <form method="POST" action="/actions/moderate">
+              <input type="hidden" name="kind" value="remove" />
+              <input type="hidden" name="postId" value={post.id} />
+              <input type="hidden" name="redirectTo" value={redirectTo} />
+              <button class="ctl-item danger" onclick={(e) => moderate('remove', e)}>Remove post</button>
+            </form>
+          {/if}
+        {/if}
+        {#if canNuke}
+          <form method="POST" action="/actions/moderate">
+            <input type="hidden" name="kind" value="nuke" />
+            <input type="hidden" name="postId" value={post.id} />
+            <input type="hidden" name="redirectTo" value={redirectTo} />
+            <button class="ctl-item danger" onclick={(e) => moderate('nuke', e)}>Nuke post</button>
+          </form>
+        {/if}
+      </div>
+    </details>
+  {/if}
 </article>
+{/if}
 
 <style>
   .post {
     padding: var(--space-4);
+    /* Anchor for the bottom-right moderation control. */
+    position: relative;
   }
   .post.nested {
     margin-top: var(--space-3);
@@ -244,7 +342,16 @@
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
   .media img {
+    display: block;
     width: 100%;
+    /* Scale to the column width and cap the height, so a tall screenshot can't
+       blow out the card. height:auto neutralizes the intrinsic height attribute
+       (which otherwise forced the natural pixel height and squashed the image);
+       the width/height attrs still give the browser an aspect ratio to reserve
+       space and avoid layout shift. object-fit:cover crops rather than warps. */
+    height: auto;
+    max-height: 512px;
+    object-fit: cover;
     border-radius: var(--radius-sm);
     border: 1px solid var(--color-border);
   }
@@ -285,5 +392,60 @@
   .ico {
     font-size: 1.05rem;
     line-height: 1;
+  }
+
+  /* --- moderation control --- */
+  .controls {
+    position: absolute;
+    bottom: var(--space-3);
+    right: var(--space-3);
+  }
+  .ctl-toggle {
+    list-style: none; /* kill the default disclosure triangle */
+    cursor: pointer;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--color-text-dim);
+    font-size: 1.1rem;
+    line-height: 1;
+  }
+  .ctl-toggle::-webkit-details-marker {
+    display: none;
+  }
+  .ctl-toggle:hover {
+    color: var(--color-text);
+    background: var(--color-bg-2);
+  }
+  /* The menu floats up-and-left from the toggle so it never spills off the
+     card's right edge or collides with the action bar below. */
+  .ctl-menu {
+    position: absolute;
+    bottom: calc(100% + var(--space-1));
+    right: 0;
+    min-width: 150px;
+    padding: var(--space-1);
+    z-index: 5;
+  }
+  .ctl-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    color: var(--color-text);
+    cursor: pointer;
+  }
+  .ctl-item:hover {
+    background: var(--color-bg-2);
+  }
+  .ctl-item.danger {
+    color: var(--color-like);
   }
 </style>

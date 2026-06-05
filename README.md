@@ -28,7 +28,12 @@ client holds special privilege.
 | API | Hono (Workers), Drizzle + postgres-js over **Hyperdrive** |
 | Database | PostgreSQL (self-hosted/managed) — fronted by Hyperdrive |
 | Web | SvelteKit + `@sveltejs/adapter-cloudflare` (SSR — every page works without JavaScript) |
-| Auth | Hand-rolled JWT (access + refresh), bcrypt, revocable sessions |
+| iOS | SwiftUI native client (iOS 17+) |
+| Auth | Hand-rolled JWT, PBKDF2 password hashing, SHA-256 token hashes (WebCrypto only — no Node/Bun crypto) |
+| Realtime | Cloudflare Durable Objects (ConversationHub, NotificationHub, TunnelSignaling) |
+| Push | APNs (iOS), Web Push RFC 8291 (browser) |
+| Storage | Cloudflare R2 — content-addressed media objects, SHA-256 keyed |
+| Bot | Node.js + discord.js on Cloud Run (Thing Two gateway) |
 | Validation | Zod (shared between API and client) |
 
 ## Layout
@@ -38,6 +43,8 @@ core/
   apps/
     api/        Hono on Workers (wrangler)   → http://localhost:3000
     web/        SvelteKit on Workers          → http://localhost:5173
+    ios/        SwiftUI native client (iOS 17+)
+    bot/        Thing Two gateway bot (Node + discord.js, Cloud Run)
   packages/
     db/         Drizzle schema, migrations, client, seed
     types/      Shared Zod schemas + TypeScript types
@@ -90,6 +97,9 @@ wrangler hyperdrive create counter-db --connection-string="postgres://user:pass@
 
 # 2. Set the API secrets in production
 cd apps/api && wrangler secret put JWT_SECRET && wrangler secret put JWT_REFRESH_SECRET
+# Encryption keys for at-rest PII (email addresses, push tokens). Generate each with:
+#   openssl rand -hex 32
+wrangler secret put MESSAGE_ENCRYPTION_KEY && wrangler secret put BLIND_INDEX_KEY
 
 # 3. Run migrations against your Postgres (from your machine)
 bun run db:migrate            # and optionally: bun run db:seed
@@ -123,8 +133,10 @@ Base URL `http://localhost:3000`. JSON everywhere. Errors are always
 (`?after=<id>&limit=<n>`, default 20, max 100). Every response carries
 `X-RateLimit-*` headers. Auth via `Authorization: Bearer <token>`.
 
-Endpoint groups: `/auth`, `/users`, `/posts`, `/search`, `/tags`,
-`/notifications`, `/insights`, `/themes`, `/algorithm`. Public endpoints work
+Endpoint groups: `/auth`, `/users`, `/posts`, `/media`, `/search`, `/tags`,
+`/topics`, `/notifications`, `/insights`, `/themes`, `/algorithm`,
+`/messages`, `/devices`, `/web-push`, `/integrations`, `/tunnel`,
+`/discord-bot`, `/reports`, `/admin`, `/preview`. Public endpoints work
 unauthenticated and never redirect to login.
 
 ## Theming

@@ -24,6 +24,9 @@ import {
 } from '@counter/db';
 import type { NotificationType, ViewReferrer } from '@counter/config';
 import { deliverPush } from './apns.ts';
+import { deliverWebPush } from './webpush.ts';
+import { deliverLiveNotification } from './notify-live.ts';
+import { deliverDiscordNotification } from './discord-bot.ts';
 
 // Hashtags allow any Unicode letter or number plus underscore, so tags in
 // non-Latin scripts work. The `u` flag is what makes \p{L}/\p{N} legal.
@@ -164,20 +167,43 @@ export async function createNotification(params: {
       postId: params.postId ?? null,
       conversationId: params.conversationId ?? null,
     })
-    .returning({ id: notifications.id });
+    .returning({ id: notifications.id, createdAt: notifications.createdAt });
   if (!created) return;
 
   // Push is a courtesy copy of the row we just stored. deliverPush no-ops when
   // APNs isn't configured or the user has no devices, so this is safe to await
   // unconditionally. We await rather than background it because the request's DB
   // connection is torn down right after the response on Workers.
-  await deliverPush(params.userId, {
+  const pushPayload = {
     notificationId: created.id,
     type: params.type,
     actorId: params.actorId,
     postId: params.postId ?? null,
     conversationId: params.conversationId ?? null,
-  });
+  };
+  // Every channel is awaited for the same reason: the Workers DB connection
+  // tears down after the response, so we can't background them. Each is wrapped
+  // so a delivery failure (a push service outage, a missing table on a
+  // half-migrated environment) stays a failed courtesy copy and never breaks the
+  // action that triggered the notification, which is already saved above.
+  //
+  // Live and background both fire: a live socket open on one device shouldn't
+  // silence the push to another (a locked phone). De-duplication is per-device
+  // on the client, where the web service worker and the iOS foreground delegate
+  // suppress the OS notification when the app is already in front.
+  await Promise.allSettled([
+    deliverLiveNotification(params.userId, {
+      id: created.id,
+      type: params.type,
+      actorId: params.actorId,
+      postId: params.postId ?? null,
+      conversationId: params.conversationId ?? null,
+      createdAt: created.createdAt.toISOString(),
+    }),
+    deliverPush(params.userId, pushPayload),
+    deliverWebPush(params.userId, pushPayload),
+    deliverDiscordNotification(params.userId, pushPayload),
+  ]);
 }
 
 /**

@@ -17,7 +17,11 @@
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import Avatar from '$lib/components/Avatar.svelte';
-  import { timeAgo } from '$lib/format';
+  import TunnelTalk from '$lib/components/TunnelTalk.svelte';
+  import LinkPreview from '$lib/components/LinkPreview.svelte';
+  import { ConversationLive } from '$lib/conversation-live';
+  import { timeAgo, linkifyMessageBody } from '$lib/format';
+  import { env } from '$env/dynamic/public';
   import {
     loadOrGenerateKeyPair,
     exportPublicKey,
@@ -25,12 +29,58 @@
     decryptMessage,
   } from '$lib/e2ee';
   import type { ActionData } from './$types';
-  import type { DeviceKey, DirectMessage } from '@counter/types';
+  import type { DeviceKey, DirectMessage, TunnelSession, TunnelSessionWithTranscript } from '@counter/types';
 
   let { data, form }: { data: any; form: ActionData } = $props();
 
-  // Reverse so the thread reads top-to-bottom chronologically.
-  const chronological = $derived([...data.messages.data].reverse());
+  const API = env.PUBLIC_API_URL || 'http://localhost:3000';
+
+  // Active Tunnel Talk session — set when the user initiates or accepts an invite.
+  let activeTunnel = $state<{ session: TunnelSession; isInitiator: boolean } | null>(null);
+
+  // Whether an invite request is in flight (prevent double-click).
+  let inviting = $state(false);
+  let acceptingTunnel = $state(false);
+
+  // Tunnel Talk invite that arrived live, after the page was already loaded.
+  // The SSR load only catches an invite that existed at first paint, so without
+  // this a recipient sitting on the thread would miss one that lands mid-view.
+  let polledPending = $state<TunnelSession | null>(null);
+
+  // Prefer a live-polled invite over the one baked in at page load.
+  const pendingTunnel = $derived<TunnelSession | null>(polledPending ?? data.pendingTunnel);
+
+  // Messages pushed over the live socket after the page loaded. Kept apart from
+  // the SSR-loaded page so a reload stays the source of truth and these merge in
+  // on top, deduped by id.
+  let liveMessages = $state<DirectMessage[]>([]);
+  // Sent messages awaiting server confirmation. Each has a temp id ("opt-<uuid>").
+  // Replaced by the real DirectMessage returned in the action response, or
+  // removed on failure so the user can retry.
+  let optimisticMessages = $state<DirectMessage[]>([]);
+  // Live thread state from the conversation socket: whether the partner has the
+  // thread open and whether they're typing right now. Both default to the
+  // server-rendered presence until the socket says otherwise.
+  let partnerOnlineLive = $state<boolean | null>(null);
+  let partnerTyping = $state(false);
+
+  // SSR messages (newest-first) reversed to read top-to-bottom, then live
+  // arrivals, then any optimistic placeholders at the tail. Deduped by id so a
+  // message that appears in multiple sources only renders once.
+  const chronological = $derived.by(() => {
+    const base = [...data.messages.data].reverse();
+    const seen = new Set(base.map((m) => m.id));
+    const extra: DirectMessage[] = [];
+    for (const m of [...liveMessages, ...optimisticMessages]) {
+      if (seen.has(m.id)) continue;
+      seen.add(m.id);
+      extra.push(m);
+    }
+    return [...base, ...extra];
+  });
+
+  // Prefer the live presence signal over the snapshot baked in at page load.
+  const partnerOnline = $derived(partnerOnlineLive ?? data.partnerPresence?.isOnline ?? false);
 
   let textarea: HTMLTextAreaElement;
   let sending = $state(false);
@@ -45,6 +95,11 @@
   // current device in the sender targets, even if it hasn't been reflected in
   // the server's data.myDeviceKeys yet (e.g. first message after first load).
   let currentPublicKey = $state<string | null>(null);
+
+  onMount(() => {
+    document.body.classList.add('chat-page');
+    return () => document.body.classList.remove('chat-page');
+  });
 
   onMount(async () => {
     const setup = await loadOrGenerateKeyPair();
@@ -69,38 +124,128 @@
           body: fd,
           headers: { 'x-sveltekit-action': 'true' },
         });
-        // Reload page data so myDeviceKeys and partnerDeviceKeys are current.
-        // This is what flips the server-encrypted notice off once both sides
-        // have registered.
-        await invalidateAll();
       } catch {
         // Registration failed; will retry on next page load.
       }
     }
+
+    // Always refresh after setup: the SSR snapshot may be stale if devices were
+    // added or removed since the page loaded. Stale myDeviceKeys means outgoing
+    // messages encrypt for the wrong target set, so this is correctness not polish.
+    await invalidateAll();
   });
 
-  // Re-runs whenever the key or message list changes (e.g. after a send-redirect
-  // refreshes page data without remounting the component). Decrypts all encrypted
-  // messages: with v3 format, the sender's copies are included, so both sides are
-  // readable on every registered device.
+  // An incoming Tunnel Talk invite that already existed when the page loaded
+  // comes down with the SSR data; one that arrives while the thread is open
+  // comes over the live socket below. No polling either way.
+
+  // --- live conversation socket: messages, typing, presence, invites ---
+
+  let live: ConversationLive | null = null;
+  // Forces the partner's typing bubble off if their 'stopped' signal is lost
+  // (tab killed mid-type). Refreshed on every 'on'.
+  let typingClearTimer: ReturnType<typeof setTimeout> | null = null;
+  // What we last told the partner, so we send one 'typing' per burst rather than
+  // one per keystroke, plus a timer that sends 'stopped' once we go idle.
+  let sentTyping = false;
+  let typingIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  onMount(() => {
+    if (!data.accessToken) return;
+
+    const conn = new ConversationLive(data.username, data.accessToken);
+    live = conn;
+
+    conn.onMessage = (msg) => {
+      // Skip anything already on screen. The send action now adds confirmed
+      // messages to liveMessages directly, so the socket's echo of our own
+      // sends lands here and gets dropped by the second check.
+      if ((data.messages.data as DirectMessage[]).some((m) => m.id === msg.id)) return;
+      if (liveMessages.some((m) => m.id === msg.id)) return;
+      liveMessages = [...liveMessages, msg];
+    };
+
+    conn.onTyping = (on) => {
+      partnerTyping = on;
+      if (typingClearTimer) clearTimeout(typingClearTimer);
+      if (on) typingClearTimer = setTimeout(() => (partnerTyping = false), 6000);
+    };
+
+    conn.onPresence = (online) => {
+      partnerOnlineLive = online;
+      // Someone who just left the thread can't still be typing in it.
+      if (!online) partnerTyping = false;
+    };
+
+    conn.onTunnelInvite = (session) => {
+      // Don't replace a session the user is already in or an invite already up.
+      if (activeTunnel || pendingTunnel) return;
+      polledPending = session;
+    };
+
+    return () => {
+      conn.close();
+      live = null;
+      if (typingClearTimer) clearTimeout(typingClearTimer);
+      if (typingIdleTimer) clearTimeout(typingIdleTimer);
+    };
+  });
+
+  // Emit typing on input, throttled to one 'on' per active burst, with a short
+  // idle timer that sends 'stopped' so the partner's bubble clears on a pause.
+  function handleTypingInput(): void {
+    if (!live) return;
+    if (!sentTyping) {
+      sentTyping = true;
+      live.setTyping(true);
+    }
+    if (typingIdleTimer) clearTimeout(typingIdleTimer);
+    typingIdleTimer = setTimeout(() => stopTyping(), 3000);
+  }
+
+  function handleKeydown(e: KeyboardEvent): void {
+    // Enter sends; Shift+Enter inserts a newline as expected.
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      // requestSubmit() fires the submit event so use:enhance picks it up,
+      // unlike form.submit() which bypasses event listeners entirely.
+      textarea.form?.requestSubmit();
+    }
+  }
+
+  /** Tell the partner we've stopped typing, if we'd said we were. */
+  function stopTyping(): void {
+    if (typingIdleTimer) {
+      clearTimeout(typingIdleTimer);
+      typingIdleTimer = null;
+    }
+    if (sentTyping) {
+      sentTyping = false;
+      live?.setTyping(false);
+    }
+  }
+
+  // Re-runs whenever the key or message list changes. Only decrypts messages not
+  // already in the cache so a single new arrival doesn't re-decrypt the whole
+  // thread. The cache is per-id so it's correct across reorders or pagination.
   $effect(() => {
     const pk = privateKey;
     const did = deviceId;
-    const msgs = data.messages.data as DirectMessage[];
+    const msgs = chronological;
     if (!pk || !did) return;
 
     void (async () => {
-      const map = new Map<string, string>();
-      for (const msg of msgs) {
-        if (msg.encrypted) {
-          try {
-            map.set(msg.id, await decryptMessage(msg.body, pk, did));
-          } catch {
-            map.set(msg.id, '[Encrypted with a previous key]');
-          }
+      const toDecrypt = msgs.filter((m) => m.encrypted && !decryptedBodies.has(m.id));
+      if (!toDecrypt.length) return;
+      const updates = new Map(decryptedBodies);
+      for (const msg of toDecrypt) {
+        try {
+          updates.set(msg.id, await decryptMessage(msg.body, pk, did));
+        } catch {
+          updates.set(msg.id, '[Encrypted with a previous key]');
         }
       }
-      decryptedBodies = map;
+      decryptedBodies = updates;
     })();
   });
 
@@ -109,12 +254,28 @@
     return decryptedBodies.get(msg.id) ?? '🔒 Decrypting…';
   }
 
+  /**
+   * Extract all unique HTTPS/HTTP URLs from a message body. Trailing sentence
+   * punctuation is stripped from each match. Returns an empty array when none
+   * are found or when the body is still the decrypting placeholder.
+   */
+  function extractAllUrls(text: string): string[] {
+    const matches = text.match(/https?:\/\/[^\s<>"']+/g) ?? [];
+    const cleaned = matches.map((u) => u.replace(/[.,!?)\]}'";:]+$/, ''));
+    return [...new Set(cleaned)];
+  }
+
   // Server-encrypted fallback: at least one party has no registered device
   // keys, so messages are AES-encrypted by the server rather than on-device.
   // Both users see a notice; the compose box stays open.
   const serverEncryptedFallback = $derived(
     data.partnerDeviceKeys.length === 0 || data.myDeviceKeys.length === 0,
   );
+
+  // Request state derived from server load data.
+  const isRequest = $derived(data.convInfo.status === 'request');
+  // Viewer is the recipient: show accept/decline. Viewer is the sender: show pending notice.
+  const isInboundRequest = $derived(data.convInfo.isInboundRequest);
 
   // Only meaningful when E2EE is active. Shows when only this device is
   // registered so the user knows other devices they open won't get copies.
@@ -152,6 +313,60 @@
   let showLockPopover = $state(false);
   // Tracks which destructive action is awaiting confirmation inside the popover.
   let confirmAction = $state<'clear' | 'delete' | null>(null);
+
+  // --- Tunnel Talk actions ---
+
+  async function inviteTunnel(): Promise<void> {
+    if (!data.accessToken || inviting) return;
+    inviting = true;
+    try {
+      const res = await fetch(`${API}/tunnel/${data.username}/invite`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${data.accessToken}` },
+      });
+      if (!res.ok) return;
+      const json = (await res.json()) as { sessionId: string };
+      // Optimistically open TunnelTalk as initiator; the server will set status
+      // to 'active' once the participant accepts.
+      activeTunnel = {
+        session: { id: json.sessionId } as TunnelSession,
+        isInitiator: true,
+      };
+    } finally {
+      inviting = false;
+    }
+  }
+
+  async function acceptTunnel(session: TunnelSession): Promise<void> {
+    if (!data.accessToken || acceptingTunnel) return;
+    acceptingTunnel = true;
+    try {
+      const res = await fetch(`${API}/tunnel/${session.id}/accept`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${data.accessToken}` },
+      });
+      if (!res.ok) return;
+      activeTunnel = { session, isInitiator: false };
+      // Clear the pending invite the same way decline does. The accept route
+      // flipped the row to active, so the next poll returns pending:false, but
+      // polledPending lingers until then; without this the banner comes back
+      // the moment the call overlay closes and activeTunnel resets to null.
+      polledPending = null;
+    } finally {
+      acceptingTunnel = false;
+    }
+  }
+
+  async function declineTunnel(session: TunnelSession): Promise<void> {
+    if (!data.accessToken) return;
+    await fetch(`${API}/tunnel/${session.id}/decline`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${data.accessToken}` },
+    });
+    // Drop the live banner now. The server marks it declined, so the next poll
+    // returns pending:false and won't bring it back.
+    polledPending = null;
+  }
 </script>
 
 <svelte:head><title>@{data.username} · Messages · Counter</title></svelte:head>
@@ -163,14 +378,25 @@
       <div class="partner-info">
         <a href="/{data.username}" class="partner-link">
           @{data.username}
-          {#if data.partnerPresence?.isOnline}
+          {#if partnerOnline}
             <span class="online-dot" title="Online now" aria-label="Online"></span>
           {/if}
         </a>
-        {#if !data.partnerPresence?.isOnline && data.partnerPresence?.lastSeenAt}
+        {#if !partnerOnline && data.partnerPresence?.lastSeenAt}
           <span class="last-seen faint">{timeAgo(data.partnerPresence.lastSeenAt)}</span>
         {/if}
       </div>
+      <!-- Tunnel Talk invite button: only when partner is online and no session active -->
+      {#if partnerOnline && !activeTunnel && data.convInfo.status === 'active'}
+        <button
+          class="btn btn-sm tunnel-btn"
+          onclick={() => void inviteTunnel()}
+          disabled={inviting}
+          title="Invite to Tunnel Talk"
+        >
+          {inviting ? 'Inviting…' : '⚡ Tunnel Talk'}
+        </button>
+      {/if}
       <div class="lock-wrap">
         <button
           class="lock-btn lock-{encryptionLevel}"
@@ -213,7 +439,19 @@
                 </div>
               {/if}
             {:else}
-              <p class="pop-detail">{encryptionDetail[encryptionLevel]}</p>
+              {#if encryptionLevel === 'server'}
+                <p class="pop-detail">
+                  {#if data.myDeviceKeys.length === 0 && data.partnerDeviceKeys.length === 0}
+                    Neither party has registered device keys. Messages are encrypted in storage by Counter's servers, not on your device.
+                  {:else if data.myDeviceKeys.length === 0}
+                    You haven't registered a device key yet. Messages are encrypted in storage by Counter's servers, not on your device.
+                  {:else}
+                    @{data.username} hasn't registered a device key yet. Messages are encrypted in storage by Counter's servers, not on your device.
+                  {/if}
+                </p>
+              {:else}
+                <p class="pop-detail">{encryptionDetail[encryptionLevel]}</p>
+              {/if}
             {/if}
 
             <hr class="pop-divider" />
@@ -252,7 +490,47 @@
     {/if}
 
     {#each chronological as msg (msg.id)}
-      {#if msg.kind === 'screenshot' || msg.kind === 'cleared' || msg.kind === 'deleted'}
+      {#if msg.kind === 'tunnel_started'}
+        <!-- Start marker for a Tunnel Talk session -->
+        <div class="sys-notice tunnel-marker">
+          <span class="sys-notice-inner faint">── Tunnel Talk Started ──</span>
+        </div>
+      {:else if msg.kind === 'tunnel_ended'}
+        {@const sessionData = msg.tunnelSessionId
+          ? (data.tunnelSessions as Record<string, TunnelSessionWithTranscript>)[msg.tunnelSessionId]
+          : null}
+        {@const wasDeclined = sessionData?.status === 'declined'}
+        {@const hasTranscript = !wasDeclined && sessionData && sessionData.messages.length > 0}
+        {#if wasDeclined && sessionData}
+          <!-- Decline marker — no transcript, no asterisk -->
+          <div class="sys-notice tunnel-marker">
+            <span class="sys-notice-inner tunnel-declined">Tunnel Talk Declined by @{sessionData.participant.username}</span>
+          </div>
+        {:else}
+          <!-- Inline transcript between the two markers, or asterisk when nothing saved -->
+          {#if hasTranscript && sessionData}
+            {#each sessionData.messages as tm (tm.id)}
+              {@const tmMine = tm.sender.username !== data.username}
+              <div class="bubble-row" class:mine={tmMine}>
+                {#if !tmMine}
+                  <Avatar user={tm.sender} size={28} />
+                {/if}
+                <div class="bubble panel" class:mine={tmMine}>
+                  <p class="body">{tm.body}</p>
+                  <span class="ts faint">{timeAgo(tm.sentAt)}</span>
+                </div>
+              </div>
+            {/each}
+          {:else}
+            <div class="sys-notice tunnel-marker">
+              <span class="sys-notice-inner faint">*</span>
+            </div>
+          {/if}
+          <div class="sys-notice tunnel-marker">
+            <span class="sys-notice-inner faint">── Tunnel Talk Ended ──</span>
+          </div>
+        {/if}
+      {:else if msg.kind === 'screenshot' || msg.kind === 'cleared' || msg.kind === 'deleted'}
         {@const isOwn = msg.sender.username !== data.username}
         {@const eventLabel = msg.kind === 'screenshot'
           ? (isOwn ? 'You took a screenshot' : `@${msg.sender.username} took a screenshot`)
@@ -264,12 +542,22 @@
         </div>
       {:else}
         {@const mine = msg.sender.username !== data.username}
+        {@const previewUrls = extractAllUrls(displayBody(msg))}
         <div class="bubble-row" class:mine>
           {#if !mine}
             <Avatar user={msg.sender} size={28} />
           {/if}
           <div class="bubble panel" class:mine>
-            <p class="body">{displayBody(msg)}</p>
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            <p class="body">{@html linkifyMessageBody(displayBody(msg))}</p>
+            {#each previewUrls as url (url)}
+              <LinkPreview
+                {url}
+                apiUrl={API}
+                accessToken={data.accessToken ?? null}
+                compact={previewUrls.length > 1}
+              />
+            {/each}
             <span class="ts faint">{timeAgo(msg.createdAt)}</span>
           </div>
         </div>
@@ -277,9 +565,60 @@
     {:else}
       <p class="muted empty">No messages yet. Say something.</p>
     {/each}
+
+    <!-- Partner's typing bubble. Ephemeral: driven only by the live socket, never persisted. -->
+    {#if partnerTyping}
+      <div class="bubble-row typing-row">
+        <div class="bubble panel typing-bubble" aria-label="{data.username} is typing">
+          <span class="typing-dot"></span>
+          <span class="typing-dot"></span>
+          <span class="typing-dot"></span>
+        </div>
+      </div>
+    {/if}
   </div>
 
   <div class="compose-wrap">
+    <!-- Pending incoming Tunnel Talk invite from the partner -->
+    {#if pendingTunnel && !activeTunnel}
+      <div class="tunnel-invite-banner panel">
+        <span class="tunnel-invite-msg">@{data.username} invited you to Tunnel Talk</span>
+        <div class="tunnel-invite-actions">
+          <button
+            class="btn btn-primary btn-sm"
+            disabled={acceptingTunnel}
+            onclick={() => void acceptTunnel(pendingTunnel!)}
+          >
+            {acceptingTunnel ? 'Joining…' : 'Join'}
+          </button>
+          <button
+            class="btn btn-sm"
+            onclick={() => void declineTunnel(pendingTunnel!)}
+          >
+            Decline
+          </button>
+        </div>
+      </div>
+    {/if}
+    {#if isInboundRequest}
+      <!-- Recipient view: accept or decline the request before replying. -->
+      <div class="request-banner panel">
+        <p class="request-msg">@{data.username} wants to send you a message.</p>
+        <div class="request-actions">
+          <form method="POST" action="?/accept">
+            <button class="btn btn-primary btn-sm" type="submit">Accept</button>
+          </form>
+          <form method="POST" action="?/deleteConversation">
+            <button class="btn btn-sm btn-danger" type="submit">Decline</button>
+          </form>
+        </div>
+      </div>
+    {:else if isRequest}
+      <!-- Sender view: waiting for the recipient to accept. -->
+      <p class="request-pending faint">
+        Message request sent — waiting for @{data.username} to accept before you can send more.
+      </p>
+    {/if}
     {#if serverEncryptedFallback}
       <p class="server-enc-notice faint">
         🔒 Server-encrypted — not end-to-end. Messages are encrypted in storage but the server can read them. {data.partnerDeviceKeys.length === 0 ? `@${data.username} hasn't registered a device yet.` : 'Register your device to enable end-to-end encryption.'}
@@ -289,6 +628,7 @@
         🔒 Encrypted for this device only. Open Counter on your other devices to register them before sending, so they receive copies.
       </p>
     {/if}
+    {#if !isRequest}
     {#if encryptError}
       <p class="error compose-error">{encryptError}</p>
     {:else if form?.error}
@@ -300,6 +640,10 @@
       class="compose panel"
       use:enhance={async ({ formData, cancel }) => {
         const plaintext = textarea?.value ?? '';
+
+        // Sending implies you've stopped typing; clear the partner's bubble now
+        // rather than waiting for the idle timer.
+        stopTyping();
 
         if (!plaintext.trim()) { cancel(); return; }
 
@@ -344,12 +688,44 @@
           }
         }
 
+        // Inject the optimistic placeholder before the POST leaves the browser.
+        // The textarea clears now so the user can start typing their next message
+        // without waiting for the round-trip.
+        const tempId = `opt-${crypto.randomUUID()}`;
+        optimisticMessages = [
+          ...optimisticMessages,
+          {
+            id: tempId,
+            sender: data.user,
+            body: plaintext,
+            encrypted: false,
+            read: true,
+            kind: 'message',
+            tunnelSessionId: null,
+            createdAt: new Date().toISOString(),
+          },
+        ];
+        if (textarea) textarea.value = '';
+
         sending = true;
         encryptError = null;
-        return async ({ update }) => {
+        return async ({ result, update }) => {
           sending = false;
-          await update({ reset: false });
-          if (!form?.error && textarea) textarea.value = '';
+          if (result.type === 'success') {
+            const realMessage = (result.data as Record<string, unknown> | undefined)
+              ?.message as DirectMessage | undefined;
+            // Swap the placeholder for the confirmed message atomically.
+            // Adding to liveMessages first means the dedup in onMessage will
+            // silently drop the socket echo when it arrives.
+            if (realMessage) liveMessages = [...liveMessages, realMessage];
+            optimisticMessages = optimisticMessages.filter((m) => m.id !== tempId);
+          } else {
+            // Send failed: remove the placeholder and restore the textarea so the
+            // user can retry without retyping.
+            optimisticMessages = optimisticMessages.filter((m) => m.id !== tempId);
+            if (textarea) textarea.value = plaintext;
+            await update({ reset: false });
+          }
         };
       }}
     >
@@ -359,22 +735,43 @@
         placeholder="Write a message…"
         rows="2"
         maxlength="10000"
+        oninput={handleTypingInput}
+        onkeydown={handleKeydown}
         required
       ></textarea>
       <button class="btn btn-primary send" type="submit" disabled={sending}>
         {sending ? 'Sending…' : 'Send'}
       </button>
     </form>
+    {/if}
   </div>
 </div>
 
+{#if activeTunnel && privateKey && deviceId}
+  <TunnelTalk
+    sessionId={activeTunnel.session.id}
+    accessToken={data.accessToken ?? ''}
+    partnerUsername={data.username}
+    isInitiator={activeTunnel.isInitiator}
+    {privateKey}
+    myDeviceId={deviceId}
+    partnerDeviceKeys={data.partnerDeviceKeys}
+    myDeviceKeys={data.myDeviceKeys}
+    onend={() => {
+      activeTunnel = null;
+      // Reload so the thread shows the Tunnel Talk end marker.
+      void invalidateAll();
+    }}
+  />
+{/if}
+
 <style>
-  /* Full-height flex column so the thread fills the space and the compose bar
-     pins to the bottom regardless of how many messages are showing. */
+  /* Fixed-height flex column so the thread scrolls internally rather than
+     the whole page growing with message count. */
   .chat {
     display: flex;
     flex-direction: column;
-    min-height: calc(100vh - 120px);
+    height: calc(100dvh - 80px);
   }
   .head {
     padding-bottom: var(--space-3);
@@ -390,6 +787,22 @@
     display: flex;
     align-items: center;
     gap: var(--space-3);
+  }
+  .request-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .request-msg { margin: 0; font-size: 0.9rem; }
+  .request-actions { display: flex; gap: var(--space-2); flex-shrink: 0; }
+  .request-pending {
+    font-size: 0.85rem;
+    padding: var(--space-2) var(--space-3);
+    text-align: center;
   }
   .partner-info {
     display: flex;
@@ -604,10 +1017,40 @@
     font-size: 0.92rem;
     line-height: 1.5;
   }
+  /* URLs rendered via {@html linkifyMessageBody} sit outside Svelte's scope. */
+  .bubble :global(.msg-link) {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .bubble :global(.msg-link):hover {
+    opacity: 0.75;
+  }
   .ts {
     font-family: var(--mono);
     font-size: 0.7rem;
     align-self: flex-end;
+  }
+  /* Typing bubble: three dots that fade in sequence. Left-aligned like a
+     partner message, but with no avatar so it reads as transient. */
+  .typing-bubble {
+    flex-direction: row;
+    align-items: center;
+    gap: 5px;
+    padding: var(--space-2) var(--space-3);
+  }
+  .typing-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-text-dim);
+    animation: typing-blink 1.4s ease-in-out infinite;
+  }
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes typing-blink {
+    0%, 60%, 100% { opacity: 0.25; }
+    30%           { opacity: 1; }
   }
   .sys-notice {
     display: flex;
@@ -621,6 +1064,11 @@
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 999px;
+  }
+  .sys-notice-inner.tunnel-declined {
+    background: #450a0a;
+    border-color: #7f1d1d;
+    color: #f87171;
   }
   .empty {
     flex: 1;
@@ -670,5 +1118,37 @@
   .send {
     flex-shrink: 0;
     align-self: flex-end;
+  }
+
+  /* Tunnel Talk invite button in the conversation header */
+  .tunnel-btn {
+    font-size: 0.78rem;
+    opacity: 0.85;
+  }
+  .tunnel-btn:hover { opacity: 1; }
+
+  /* Centered system marker for tunnel_started / tunnel_ended / asterisk */
+  .tunnel-marker {
+    margin: var(--space-1) 0;
+  }
+
+  /* Pending Tunnel Talk invite banner */
+  .tunnel-invite-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-2);
+    flex-wrap: wrap;
+    border-left: 3px solid var(--color-accent, #6366f1);
+  }
+  .tunnel-invite-msg {
+    font-size: 0.9rem;
+  }
+  .tunnel-invite-actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-shrink: 0;
   }
 </style>

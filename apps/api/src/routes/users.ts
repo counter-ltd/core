@@ -24,10 +24,11 @@ import {
   and,
   desc,
   inArray,
+  isNull,
 } from '@counter/db';
 import { updateProfileSchema, paginationQuerySchema, presenceSettingsSchema } from '@counter/types';
 import type { Page, PublicUser, Post, PresenceSettings } from '@counter/types';
-import type { PresenceVisibility } from '@counter/config';
+import type { PresenceVisibility, MessagingPrivacy } from '@counter/config';
 import { body, query } from '../lib/validate.ts';
 import { errors } from '../lib/errors.ts';
 import { keysetWhere, paginate } from '../lib/cursor.ts';
@@ -39,6 +40,7 @@ import {
 } from '../services/userquery.ts';
 import { serializeUsers, serializePostList } from '../services/serialize.ts';
 import { createNotification } from '../services/content.ts';
+import { setUserAvatar } from '../services/media.ts';
 import type { AppEnv } from '../types.ts';
 
 export const userRoutes = new Hono<AppEnv>();
@@ -62,9 +64,12 @@ userRoutes.patch('/me', requireAuth, async (c) => {
   const patch: Record<string, unknown> = { updatedAt: new Date() };
   if ('displayName' in input) patch.displayName = input.displayName;
   if ('bio' in input) patch.bio = input.bio;
-  if ('avatarUrl' in input) patch.avatarUrl = input.avatarUrl;
 
   await db.update(users).set(patch).where(eq(users.id, userId));
+  // The avatar lives behind a refcounted media object, so it can't be a plain
+  // column write: setUserAvatar swaps the object, fixes both refcounts, and
+  // derives the served avatarUrl.
+  if ('avatarObjectId' in input) await setUserAvatar(userId, input.avatarObjectId ?? null);
   return c.json(await getPrivateUser(userId));
 });
 
@@ -81,6 +86,8 @@ userRoutes.get('/me/presence', requireAuth, async (c) => {
     lastSeenEnabled: row.lastSeenEnabled,
     lastSeenVisibility: row.lastSeenVisibility as PresenceVisibility,
     heartbeatIntervalSeconds: row.heartbeatIntervalSeconds,
+    messagingPrivacy: row.messagingPrivacy as MessagingPrivacy,
+    typingIndicatorsEnabled: row.typingIndicatorsEnabled,
   });
 });
 
@@ -96,6 +103,8 @@ userRoutes.put('/me/presence', requireAuth, async (c) => {
   if ('lastSeenEnabled' in input) patch.lastSeenEnabled = input.lastSeenEnabled;
   if ('lastSeenVisibility' in input) patch.lastSeenVisibility = input.lastSeenVisibility;
   if ('heartbeatIntervalSeconds' in input) patch.heartbeatIntervalSeconds = input.heartbeatIntervalSeconds;
+  if ('messagingPrivacy' in input) patch.messagingPrivacy = input.messagingPrivacy;
+  if ('typingIndicatorsEnabled' in input) patch.typingIndicatorsEnabled = input.typingIndicatorsEnabled;
 
   await db.update(users).set(patch).where(eq(users.id, userId));
   return c.json({ ok: true });
@@ -137,9 +146,12 @@ userRoutes.get('/:username/public-key', async (c) => {
 // A user's own posts, newest first, keyset-paginated. The `after` cursor is a
 // post id; we look that post up to recover its (createdAt, id) sort position,
 // and silently ignore an unknown id rather than erroring on a stale cursor.
+// `filter=posts` (the default) excludes replies; `filter=all` includes them.
 userRoutes.get('/:username/posts', async (c) => {
   const viewerId = c.get('userId');
   const { after, limit } = query(c, paginationQuerySchema);
+  const filterParam = c.req.query('filter');
+  const postsOnly = filterParam !== 'all';
   const target = await findUserByUsername(c.req.param('username'));
   if (!target) throw errors.notFound('User not found');
 
@@ -149,7 +161,12 @@ userRoutes.get('/:username/posts', async (c) => {
     if (row) cursor = { createdAt: row.createdAt, id: row.id };
   }
 
-  const base = and(eq(posts.userId, target.id), eq(posts.deleted, false));
+  const base = and(
+    eq(posts.userId, target.id),
+    eq(posts.deleted, false),
+    // Replies have a parentId; exclude them when the caller only wants root posts.
+    postsOnly ? isNull(posts.parentId) : undefined,
+  );
   const where = keysetWhere(posts.createdAt, posts.id, cursor, base);
 
   const rows = await db

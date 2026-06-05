@@ -27,6 +27,18 @@ export interface WorkerBindings {
   PUBLIC_WEB_URL?: string;
   /** Present in Node/Bun (local, tests). On Workers the DB comes from HYPERDRIVE. */
   DATABASE_URL?: string;
+  /**
+   * R2 bucket holding all user media (avatars, post photos). Objects are keyed
+   * by the sha256 of their bytes under `objects/{hash}`. Bound in
+   * wrangler.jsonc; absent under the plain Bun dev server, so the media service
+   * guards on it. See services/media.ts.
+   */
+  MEDIA?: R2Bucket;
+  /**
+   * Public origin the MEDIA bucket is served from (custom domain). Used to build
+   * the stored, client-facing URLs. Falls back to the config default when unset.
+   */
+  MEDIA_PUBLIC_URL?: string;
   /** Hyperdrive binding that hands back a pooled connection string per request. */
   HYPERDRIVE?: { connectionString: string };
   /**
@@ -35,6 +47,13 @@ export interface WorkerBindings {
    *   openssl rand -hex 32
    */
   MESSAGE_ENCRYPTION_KEY: string;
+  /**
+   * 64-char hex HMAC key for blind indexes that keep encrypted columns (email,
+   * push token) queryable. Set via `wrangler secret put BLIND_INDEX_KEY`,
+   * generate with `openssl rand -hex 32`. Separate from MESSAGE_ENCRYPTION_KEY
+   * so a leak of one key doesn't compromise the other.
+   */
+  BLIND_INDEX_KEY: string;
   /**
    * Cloudflare Email Sending binding (`send_email` in wrangler.jsonc). Optional
    * because it only exists once the sending domain is onboarded, so local dev
@@ -54,6 +73,44 @@ export interface WorkerBindings {
   APNS_AUTH_KEY?: string;
   /** Override to point at Apple's sandbox host; defaults to production. */
   APNS_HOST?: string;
+  /**
+   * GitHub OAuth app credentials. Optional: when absent, the GitHub OAuth
+   * endpoints return a 500 rather than starting an unusable flow.
+   */
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
+  /**
+   * Discord OAuth app credentials. Same optionality as GitHub above.
+   */
+  DISCORD_CLIENT_ID?: string;
+  DISCORD_CLIENT_SECRET?: string;
+  /**
+   * Cloudflare Calls TURN key for NAT traversal. When absent the API falls back
+   * to public STUN only, which covers most NAT types but fails on symmetric NAT.
+   * Set via `wrangler secret put TURN_KEY_ID` and `wrangler secret put TURN_KEY_SECRET`.
+   */
+  TURN_KEY_ID?: string;
+  TURN_KEY_SECRET?: string;
+  /**
+   * Durable Object namespace for Tunnel Talk signaling. One DO instance per
+   * active session; keyed by session ID via `idFromName(sessionId)`.
+   */
+  TUNNEL_SIGNALING: DurableObjectNamespace;
+  /**
+   * Durable Object namespace for live conversation channels. One instance per
+   * conversation, keyed by the two participants' sorted user ids. Optional
+   * because Durable Objects only bind under `wrangler dev`; the message routes
+   * guard on it so sends still work under the plain Bun dev server (without the
+   * live push).
+   */
+  CONVERSATION_HUB?: DurableObjectNamespace;
+  /**
+   * Durable Object namespace for the live notification feed. One instance per
+   * user, keyed by user id. Optional for the same reason as CONVERSATION_HUB:
+   * Durable Objects only bind under `wrangler dev`, and the notification path
+   * guards on it so everything still works under the Bun dev server.
+   */
+  NOTIFICATION_HUB?: DurableObjectNamespace;
 }
 
 /**
@@ -84,5 +141,8 @@ export interface AppEnv {
     // Optional because optionalAuth runs everywhere but only fills this in when
     // a valid access token is present. An absent userId means an anonymous call.
     userId?: string;
+    // The caller's effective admin permissions, memoised by requirePermission so
+    // a route with several permission checks only resolves the union once.
+    permissions?: import('@counter/config').Permission[];
   };
 }

@@ -19,6 +19,7 @@ import { rateLimit } from './middleware/ratelimit.ts';
 import { authRoutes } from './routes/auth.ts';
 import { userRoutes } from './routes/users.ts';
 import { postRoutes } from './routes/posts.ts';
+import { mediaRoutes } from './routes/media.ts';
 import { searchRoutes } from './routes/search.ts';
 import { tagRoutes } from './routes/tags.ts';
 import { notificationRoutes } from './routes/notifications.ts';
@@ -29,6 +30,13 @@ import { topicRoutes } from './routes/topics.ts';
 import { integrationRoutes } from './routes/integrations.ts';
 import { messageRoutes } from './routes/messages.ts';
 import { deviceRoutes } from './routes/devices.ts';
+import { oauthRoutes } from './routes/oauth.ts';
+import { tunnelRoutes } from './routes/tunnel.ts';
+import { discordBotRoutes } from './routes/discord-bot.ts';
+import { webPushRoutes } from './routes/web-push.ts';
+import { adminRoutes } from './routes/admin.ts';
+import { reportRoutes } from './routes/reports.ts';
+import { previewRoutes } from './routes/preview.ts';
 import type { AppEnv } from './types.ts';
 
 /**
@@ -50,7 +58,7 @@ export function createApp() {
   app.get('/', (c) =>
     c.json({
       name: 'Counter API',
-      version: '1.0.0',
+      version: '0.3.0',
       docs: 'https://github.com/counter-ltd/core',
       message: 'Open source. Open algorithm. No tracking. Public by default.',
     }),
@@ -58,8 +66,10 @@ export function createApp() {
   app.get('/health', (c) => c.json({ ok: true }));
 
   app.route('/auth', authRoutes);
+  app.route('/auth', oauthRoutes);
   app.route('/users', userRoutes);
   app.route('/posts', postRoutes);
+  app.route('/media', mediaRoutes);
   app.route('/search', searchRoutes);
   app.route('/tags', tagRoutes);
   app.route('/notifications', notificationRoutes);
@@ -70,6 +80,12 @@ export function createApp() {
   app.route('/integrations', integrationRoutes);
   app.route('/messages', messageRoutes);
   app.route('/devices', deviceRoutes);
+  app.route('/tunnel', tunnelRoutes);
+  app.route('/discord-bot', discordBotRoutes);
+  app.route('/web-push', webPushRoutes);
+  app.route('/reports', reportRoutes);
+  app.route('/admin', adminRoutes);
+  app.route('/preview', previewRoutes);
 
   // Unmatched paths and thrown errors funnel through these two so every
   // response leaves the API in the same `{ error: { code, message } }` shape.

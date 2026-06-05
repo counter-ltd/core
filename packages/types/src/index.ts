@@ -18,3 +18,7 @@ export * from './algorithm.ts';
 export * from './topic.ts';
 export * from './trust.ts';
 export * from './messages.ts';
+export * from './oauth.ts';
+export * from './tunnel.ts';
+export * from './admin.ts';
+export * from './link-preview.ts';

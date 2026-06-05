@@ -3,7 +3,8 @@
 
  Both the profile data and initial post page are fetched in parallel via
  `ProfileViewModel.load()`. Subsequent post pages load on scroll via
- `loadMorePosts()`.
+ `loadMorePosts()`. A filter bar between the header and the list lets the
+ viewer switch between root posts only (default) and all posts including replies.
  */
 
 import SwiftUI
@@ -36,6 +37,8 @@ struct ProfileView: View {
                         onFollow: { Task { await vm.toggleFollow() } }
                     )
                     Divider().overlay(theme.border)
+                    filterBar
+                    Divider().overlay(theme.border)
                 }
 
                 ForEach(vm.posts) { post in
@@ -51,6 +54,34 @@ struct ProfileView: View {
                 if vm.isLoading && !vm.posts.isEmpty {
                     ProgressView().padding()
                 }
+            }
+        }
+        .background(theme.bg)
+    }
+
+    private var filterBar: some View {
+        HStack(spacing: 0) {
+            ForEach(ProfilePostFilter.allCases, id: \.self) { option in
+                Button {
+                    guard vm.filter != option else { return }
+                    vm.filter = option
+                    Task { await vm.reloadPosts() }
+                } label: {
+                    Text(option.label)
+                        .font(.system(size: 14, weight: vm.filter == option ? .semibold : .regular))
+                        .foregroundStyle(vm.filter == option ? theme.text : theme.textDim)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        // Underline on the active tab.
+                        .overlay(alignment: .bottom) {
+                            if vm.filter == option {
+                                Rectangle()
+                                    .frame(height: 2)
+                                    .foregroundStyle(theme.accent)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
             }
         }
         .background(theme.bg)

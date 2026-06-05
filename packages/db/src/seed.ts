@@ -8,7 +8,7 @@
  * the app renders something real on first run. Bun-only, never on Workers.
  */
 import { loadRootEnv, loadServerEnv } from '@counter/config/env';
-import { ALGORITHM } from '@counter/config';
+import { ALGORITHM, PERMISSION_KEYS, MODERATOR_PERMISSIONS, SYSTEM_GROUPS } from '@counter/config';
 
 loadRootEnv();
 const env = loadServerEnv();
@@ -18,7 +18,7 @@ if (!env.DATABASE_URL) throw new Error('DATABASE_URL must be set to seed.');
 // know there's a database to talk to.
 const { createDb, runWithDb, db } = await import('./client.ts');
 const schema = await import('./schema.ts');
-const { users, posts, follows, likes, reposts, tags, postTags, themes, algorithmChangelog, postViews } =
+const { users, posts, follows, likes, reposts, tags, postTags, themes, algorithmChangelog, postViews, groups, userGroups } =
   schema;
 
 const instance = createDb(env.DATABASE_URL);
@@ -40,19 +40,25 @@ await runWithDb(instance, async () => {
   await db.delete(tags);
   await db.delete(themes);
   await db.delete(algorithmChangelog);
+  // user_groups references both users and groups, so clear it before either.
+  await db.delete(userGroups);
+  await db.delete(groups);
   await db.delete(users);
 
   // Every seed user shares one password. We hash it once and reuse it; the
   // format matches the API's hasher so these accounts can actually log in.
   const passwordHash = await hashPassword('password123');
 
+  // Emails are encrypted at rest, with a blind index for lookup, exactly as the
+  // API writes them. The keys must match apps/api/.dev.vars, or these accounts
+  // won't decrypt or resolve at login.
   const [ada, linus, grace] = await db
     .insert(users)
     .values([
       {
         username: 'ada',
         displayName: 'Ada Lovelace',
-        email: 'ada@counter.ltd',
+        ...(await emailFields('ada@counter.ltd')),
         passwordHash,
         bio: 'Writing the first algorithm, in the open.',
         verified: true,
@@ -60,14 +66,14 @@ await runWithDb(instance, async () => {
       {
         username: 'linus',
         displayName: 'Linus',
-        email: 'linus@counter.ltd',
+        ...(await emailFields('linus@counter.ltd')),
         passwordHash,
         bio: 'Talk is cheap. Show me the code.',
       },
       {
         username: 'grace',
         displayName: 'Grace Hopper',
-        email: 'grace@counter.ltd',
+        ...(await emailFields('grace@counter.ltd')),
         passwordHash,
         bio: 'It is easier to ask forgiveness than permission.',
         verified: true,
@@ -159,7 +165,42 @@ await runWithDb(instance, async () => {
     },
   ]);
 
+  // Admin groups. `admin` carries every permission (the resolver also grants the
+  // full set to any admin-group member regardless of what's stored); `moderator`
+  // is the content-focused subset. Both are system groups, so the panel won't let
+  // anyone delete them out from under the site.
+  const [adminGroup, modGroup] = await db
+    .insert(groups)
+    .values([
+      {
+        slug: SYSTEM_GROUPS.ADMIN,
+        name: 'Administrators',
+        description: 'Full access to every part of the control panel.',
+        permissions: [...PERMISSION_KEYS],
+        color: '#7aa2ff',
+        isSystem: true,
+      },
+      {
+        slug: SYSTEM_GROUPS.MODERATOR,
+        name: 'Moderators',
+        description: 'Content moderation and the report queue.',
+        permissions: MODERATOR_PERMISSIONS,
+        color: '#7ad1a8',
+        isSystem: true,
+      },
+    ])
+    .returning();
+  if (!adminGroup || !modGroup) throw new Error('Seed groups failed');
+
+  // ada runs the place; grace helps moderate. linus is a normal user, so the
+  // seeded data shows the panel both with and without access.
+  await db.insert(userGroups).values([
+    { userId: ada.id, groupId: adminGroup.id, assignedBy: ada.id },
+    { userId: grace.id, groupId: modGroup.id, assignedBy: ada.id },
+  ]);
+
   console.log('Seed complete. Login with any of: ada / linus / grace (password: password123)');
+  console.log('  ada = Administrator, grace = Moderator, linus = regular user');
 });
 
 await instance.sql.end();
@@ -189,4 +230,52 @@ async function hashPassword(password: string): Promise<string> {
   );
   const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
   return `pbkdf2$${iterations}$${b64(salt)}$${b64(new Uint8Array(bits))}`;
+}
+
+/** Hex string to bytes, for loading the 32-byte AES/HMAC keys from env. */
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) bytes[i >> 1] = parseInt(hex.slice(i, i + 2), 16);
+  return bytes;
+}
+
+/**
+ * Inline copy of the API's field encryption (AES-256-GCM, `v1:` envelope), so
+ * seeded emails are stored in the same encrypted-at-rest shape the API writes.
+ * Kept here rather than imported because the seed can't reach into apps/api.
+ */
+async function encryptField(plaintext: string, hexKey: string): Promise<string> {
+  const key = await crypto.subtle.importKey('raw', hexToBytes(hexKey), { name: 'AES-GCM' }, false, [
+    'encrypt',
+  ]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    new TextEncoder().encode(plaintext),
+  );
+  const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
+  return `v1:${b64(iv)}:${b64(new Uint8Array(ct))}`;
+}
+
+/** Inline copy of the API's blind index (keyed HMAC-SHA256) for email lookups. */
+async function blindIndex(value: string, hexKey: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    hexToBytes(hexKey),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Build the encrypted email + blind index pair a seeded user row needs. */
+async function emailFields(address: string): Promise<{ email: string; emailIndex: string }> {
+  const lowered = address.toLowerCase();
+  return {
+    email: await encryptField(lowered, env.MESSAGE_ENCRYPTION_KEY),
+    emailIndex: await blindIndex(lowered, env.BLIND_INDEX_KEY),
+  };
 }

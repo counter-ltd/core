@@ -13,7 +13,10 @@
    */
   import { enhance } from '$app/forms';
   import { page } from '$app/state';
+  import { env } from '$env/dynamic/public';
   let { form } = $props();
+
+  const apiUrl = env.PUBLIC_API_URL || 'http://localhost:3000';
 
   // After an account is deleted the server bounces here with ?deleted=1. The
   // license (Condition 6) requires confirming the deletion to the user in
@@ -47,6 +50,23 @@
     <button class="btn btn-primary" type="submit">Log in</button>
   </form>
 
+  <div class="divider"><span>or</span></div>
+
+  <div class="oauth">
+    <a href="{apiUrl}/auth/github" class="btn btn-oauth">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+      </svg>
+      Continue with GitHub
+    </a>
+    <a href="{apiUrl}/auth/discord" class="btn btn-oauth">
+      <svg width="16" height="16" viewBox="0 0 127.14 96.36" fill="currentColor" aria-hidden="true">
+        <path d="M107.7 8.07A105.15 105.15 0 0081.47 0a72.06 72.06 0 00-3.36 6.83 97.68 97.68 0 00-29.11 0A72.37 72.37 0 0045.64 0a105.89 105.89 0 00-26.25 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0032.17 16.15 77.7 77.7 0 006.89-11.11 68.42 68.42 0 01-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0064.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 01-10.87 5.19 77 77 0 006.89 11.1 105.25 105.25 0 0032.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15zM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53s-5.05 12.69-11.44 12.69zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.44-12.74S96.23 46 96.12 53s-5.04 12.69-11.43 12.69z"/>
+      </svg>
+      Continue with Discord
+    </a>
+  </div>
+
   <p class="muted alt">No account? <a href="/register">Create one</a></p>
 </div>
 
@@ -58,6 +78,34 @@
   }
   .alt {
     margin-top: var(--space-4);
+  }
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin: var(--space-4) 0;
+    color: var(--color-text-dim);
+    font-size: 0.8rem;
+  }
+  .divider::before,
+  .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--color-border);
+  }
+  .oauth {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .btn-oauth {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    width: 100%;
+    text-decoration: none;
   }
   .deleted {
     margin-bottom: var(--space-4);

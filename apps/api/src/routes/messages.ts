@@ -20,6 +20,8 @@ import {
   conversations,
   messages,
   deviceKeys,
+  follows,
+  users,
   eq,
   and,
   or,
@@ -33,7 +35,8 @@ import {
   count,
 } from '@counter/db';
 import { paginationQuerySchema, sendMessageSchema } from '@counter/types';
-import type { Page, Conversation, DirectMessage } from '@counter/types';
+import type { Page, Conversation, DirectMessage, ConversationInfo, TunnelSessionWithTranscript } from '@counter/types';
+import { fetchTunnelSessions } from './tunnel.ts';
 import { body, query } from '../lib/validate.ts';
 import { errors } from '../lib/errors.ts';
 import { keysetWhere, paginate } from '../lib/cursor.ts';
@@ -93,8 +96,15 @@ async function pruneConversation(conv: ConvRow) {
  * Ensure exactly one conversation row exists for the given pair, creating it
  * if this is their first message. The two ids are sorted before the lookup so
  * the unique index on (participantA, participantB) is always hit correctly.
+ *
+ * @param onCreate - Status and requester to use when creating a new row. Only
+ *   consulted when no row exists yet; ignored on existing conversations.
  */
-async function findOrCreateConversation(userA: string, userB: string) {
+async function findOrCreateConversation(
+  userA: string,
+  userB: string,
+  onCreate?: { status: string; requestedBy: string | null },
+) {
   // Sort is guaranteed to return two strings given two string inputs; the cast
   // tells TypeScript that both slots are definitely filled.
   const [partA, partB] = [userA, userB].sort() as [string, string];
@@ -105,7 +115,12 @@ async function findOrCreateConversation(userA: string, userB: string) {
 
   const rows = await db
     .insert(conversations)
-    .values({ participantA: partA, participantB: partB })
+    .values({
+      participantA: partA,
+      participantB: partB,
+      status: onCreate?.status ?? 'active',
+      requestedBy: onCreate?.requestedBy ?? null,
+    })
     .returning();
   const created = rows[0];
   if (!created) throw errors.internal('Failed to create conversation');
@@ -225,6 +240,7 @@ messageRoutes.get('/', async (c) => {
               read: lastMsgRow.read,
               encrypted: e2ee,
               kind: lastMsgRow.kind as DirectMessage['kind'],
+              tunnelSessionId: lastMsgRow.tunnelSessionId ?? null,
               createdAt: lastMsgRow.createdAt.toISOString(),
             };
           }
@@ -237,6 +253,9 @@ messageRoutes.get('/', async (c) => {
           unreadCount: unreadMap.get(conv.id) ?? 0,
           lastMessageAt: conv.lastMessageAt.toISOString(),
           createdAt: conv.createdAt.toISOString(),
+          status: (conv.status ?? 'active') as 'active' | 'request',
+          // Inbound when this user is the recipient, not the one who initiated.
+          isInboundRequest: conv.status === 'request' && conv.requestedBy !== userId,
         } satisfies Conversation;
       }),
     )
@@ -319,13 +338,57 @@ messageRoutes.get('/:username', async (c) => {
           read: row.read,
           encrypted: e2ee,
           kind: row.kind as DirectMessage['kind'],
+          tunnelSessionId: row.tunnelSessionId ?? null,
           createdAt: row.createdAt.toISOString(),
         } satisfies DirectMessage;
       }),
     )
   ).filter((m): m is DirectMessage => !!m);
 
-  return c.json<Page<DirectMessage>>({ data, nextCursor });
+  // Collect tunnel session IDs from the page so the client can render inline
+  // transcript blocks between tunnel_started/tunnel_ended markers without a
+  // separate fetch. Two queries (sessions + messages) keyed by the IDs already
+  // in memory — no N+1.
+  const sessionIds = [
+    ...new Set(data.map((m) => m.tunnelSessionId).filter(Boolean) as string[]),
+  ];
+  const tunnelSessions = await fetchTunnelSessions(sessionIds, userId);
+
+  return c.json<Page<DirectMessage> & { tunnelSessions: Record<string, TunnelSessionWithTranscript> }>(
+    { data, nextCursor, tunnelSessions },
+  );
+});
+
+// --- live channel (WebSocket) ---
+
+// Upgrades to this conversation's Durable Object hub so the client receives new
+// messages, typing, and presence without polling. Auth and partner resolution
+// happen here; the hub trusts the userId and canType we forward to it.
+messageRoutes.get('/:username/live', async (c) => {
+  const userId = requireUserId(c);
+  const username = c.req.param('username');
+
+  const partner = await findUserByUsername(username);
+  if (!partner) throw errors.notFound('User not found');
+  if (partner.id === userId) throw errors.validation('Cannot message yourself');
+
+  // Durable Objects only bind under wrangler dev. Without the binding there's
+  // no hub to join; the client keeps using its existing fetch-on-load path.
+  if (!c.env.CONVERSATION_HUB) throw errors.validation('Live updates are not available');
+
+  // The hub gates typing on this flag, so a user who turned the setting off
+  // can't have typing relayed even from a patched client.
+  const me = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  const canType = me?.typingIndicatorsEnabled ? '1' : '0';
+
+  // Both sides sort to the same key, so each participant joins the same hub.
+  const pairKey = [userId, partner.id].sort().join(':');
+  const stub = c.env.CONVERSATION_HUB.get(c.env.CONVERSATION_HUB.idFromName(pairKey));
+
+  const url = new URL(c.req.url);
+  url.searchParams.set('userId', userId);
+  url.searchParams.set('canType', canType);
+  return stub.fetch(new Request(url.toString(), c.req.raw));
 });
 
 // --- send a message ---
@@ -338,6 +401,43 @@ messageRoutes.post('/:username', async (c) => {
   const partner = await findUserByUsername(username);
   if (!partner) throw errors.notFound('User not found');
   if (partner.id === userId) throw errors.validation('Cannot message yourself');
+
+  // Check for an existing conversation so we can gate on its request status
+  // before doing the heavier encryption work.
+  const [sortedA, sortedB] = [userId, partner.id].sort() as [string, string];
+  const existing = await db.query.conversations.findFirst({
+    where: and(eq(conversations.participantA, sortedA), eq(conversations.participantB, sortedB)),
+  });
+
+  if (existing?.status === 'request') {
+    if (existing.requestedBy === userId) {
+      // Requester cannot send a second message until the recipient accepts.
+      throw errors.validation('Message request pending — wait for a reply before sending more');
+    }
+    // Recipient must use the accept endpoint before replying; the UI enforces
+    // this too, but we guard here so a direct API call is also rejected.
+    throw errors.validation('Accept the message request before replying');
+  }
+
+  // For new conversations, apply the recipient's messaging privacy setting.
+  let convStatus = 'active';
+  let requestedBy: string | null = null;
+
+  if (!existing) {
+    if (partner.messagingPrivacy === 'nobody') {
+      throw errors.forbidden('This user does not accept messages');
+    }
+    if (partner.messagingPrivacy === 'followers') {
+      // 'followers' means only people who follow the recipient can DM directly.
+      const isFollower = await db.query.follows.findFirst({
+        where: and(eq(follows.followerId, userId), eq(follows.followingId, partner.id)),
+      });
+      if (!isFollower) {
+        convStatus = 'request';
+        requestedBy = userId;
+      }
+    }
+  }
 
   const recipientKeys = await db
     .select()
@@ -366,7 +466,11 @@ messageRoutes.post('/:username', async (c) => {
     bodyToStore = await encryptMessage(input.body, c.env.MESSAGE_ENCRYPTION_KEY);
   }
 
-  const conv = await findOrCreateConversation(userId, partner.id);
+  const conv = await findOrCreateConversation(
+    userId,
+    partner.id,
+    existing ? undefined : { status: convStatus, requestedBy },
+  );
 
   const inserted = await db
     .insert(messages)
@@ -391,7 +495,95 @@ messageRoutes.post('/:username', async (c) => {
     conversationId: conv.id,
   });
 
-  return c.json({ id: msg.id }, 201);
+  // Build the response payload once and reuse it for the live hub broadcast.
+  // The hub never decrypts; an E2EE body goes out as the same ciphertext the
+  // recipient would have fetched, and only the server-encrypted fallback is
+  // decrypted here to match what the REST list returns.
+  const senderUser = (await serializeUsers([userId], userId)).get(userId);
+  if (!senderUser) throw errors.internal('Failed to serialize sender');
+
+  const e2ee = isE2eeMessage(bodyToStore);
+  const responseMessage: DirectMessage = {
+    id: msg.id,
+    sender: senderUser,
+    body: e2ee ? bodyToStore : await decryptMessage(bodyToStore, c.env.MESSAGE_ENCRYPTION_KEY),
+    read: false,
+    encrypted: e2ee,
+    kind: msg.kind as DirectMessage['kind'],
+    tunnelSessionId: msg.tunnelSessionId ?? null,
+    createdAt: msg.createdAt.toISOString(),
+  };
+
+  // Push to the live socket best-effort: row is already stored so a hub failure
+  // (or the Bun dev server where Durable Objects don't bind) never loses a message.
+  if (c.env.CONVERSATION_HUB) {
+    const pairKey = [userId, partner.id].sort().join(':');
+    const stub = c.env.CONVERSATION_HUB.get(c.env.CONVERSATION_HUB.idFromName(pairKey));
+    c.executionCtx.waitUntil(
+      stub.fetch('https://hub/broadcast', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'message', message: responseMessage }),
+      }),
+    );
+  }
+
+  return c.json<DirectMessage>(responseMessage, 201);
+});
+
+// --- conversation info (request status) ---
+
+// Lightweight endpoint for the thread page to check request state without
+// loading the full message list. Returns null status when no conversation exists.
+messageRoutes.get('/:username/info', async (c) => {
+  const userId = requireUserId(c);
+  const username = c.req.param('username');
+
+  const partner = await findUserByUsername(username);
+  if (!partner) throw errors.notFound('User not found');
+  if (partner.id === userId) throw errors.validation('Cannot message yourself');
+
+  const [partA, partB] = [userId, partner.id].sort() as [string, string];
+  const conv = await db.query.conversations.findFirst({
+    where: and(eq(conversations.participantA, partA), eq(conversations.participantB, partB)),
+  });
+
+  if (!conv) {
+    return c.json<ConversationInfo>({ status: null, isInboundRequest: false });
+  }
+
+  return c.json<ConversationInfo>({
+    status: (conv.status ?? 'active') as 'active' | 'request',
+    isInboundRequest: conv.status === 'request' && conv.requestedBy !== userId,
+  });
+});
+
+// --- accept a message request ---
+
+// Sets the conversation status to 'active' so both sides can exchange messages
+// freely. Only the recipient (the non-requester) is allowed to call this.
+messageRoutes.post('/:username/accept', async (c) => {
+  const userId = requireUserId(c);
+  const username = c.req.param('username');
+
+  const partner = await findUserByUsername(username);
+  if (!partner) throw errors.notFound('User not found');
+
+  const [partA, partB] = [userId, partner.id].sort() as [string, string];
+  const conv = await db.query.conversations.findFirst({
+    where: and(eq(conversations.participantA, partA), eq(conversations.participantB, partB)),
+  });
+
+  if (!conv) throw errors.notFound('Conversation not found');
+  if (conv.status !== 'request') throw errors.validation('Conversation is not a message request');
+  // Prevent the requester from accepting their own request.
+  if (conv.requestedBy === userId) throw errors.forbidden('Cannot accept your own message request');
+
+  await db
+    .update(conversations)
+    .set({ status: 'active', requestedBy: null })
+    .where(eq(conversations.id, conv.id));
+
+  return c.json({ ok: true });
 });
 
 // --- record a screenshot event ---
@@ -433,6 +625,7 @@ messageRoutes.post('/:username/screenshot', async (c) => {
     read: true,
     encrypted: false,
     kind: 'screenshot',
+    tunnelSessionId: null,
     createdAt: msg.createdAt.toISOString(),
   }, 201);
 });
@@ -492,6 +685,7 @@ messageRoutes.delete('/:username/messages', async (c) => {
     read: true,
     encrypted: false,
     kind: 'cleared',
+    tunnelSessionId: null,
     createdAt: msg.createdAt.toISOString(),
   }, 200);
 });

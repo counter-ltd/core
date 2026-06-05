@@ -13,4 +13,9 @@ struct Page<T: Decodable & Sendable>: Decodable, Sendable {
     let data: [T]
     /// Nil when there are no more pages.
     let nextCursor: String?
+    /// Only present on the conversation thread (GET /messages/:username): a map
+    /// of Tunnel Talk sessions referenced by `tunnel_started`/`tunnel_ended`
+    /// markers in `data`, so the thread can render inline transcripts. Nil on
+    /// every other paginated endpoint.
+    let tunnelSessions: [String: TunnelSessionWithTranscript]?
 }

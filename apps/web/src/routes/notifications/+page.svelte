@@ -9,10 +9,37 @@
    * unread ones get a highlighted border, and "Mark all read" clears them in one
    * action. Logged-in only.
    */
+  import { onMount } from 'svelte';
+  import { enhance } from '$app/forms';
   import Avatar from '$lib/components/Avatar.svelte';
   import { timeAgo } from '$lib/format';
+  import { badges } from '$lib/badges.svelte';
   import type { Notification } from '@counter/types';
   let { data } = $props();
+
+  // Notifications that arrived live while this page was open, prepended to the
+  // SSR-loaded list. The layout owns the one socket and re-dispatches each new
+  // notification as a DOM event, which we fold in here.
+  let live = $state<Notification[]>([]);
+
+  // Live arrivals first, then the loaded page, deduped by id so a refetch that
+  // later includes a live one doesn't double it.
+  const items = $derived.by(() => {
+    const seen = new Set(data.notifications.data.map((n: Notification) => n.id));
+    return [...live.filter((n) => !seen.has(n.id)), ...data.notifications.data];
+  });
+
+  onMount(() => {
+    function onLive(e: Event) {
+      const n = (e as CustomEvent<Notification>).detail;
+      // Message notifications have their own badge and inbox; the bell list
+      // shows everything else.
+      if (n.type === 'message') return;
+      if (!live.some((x) => x.id === n.id)) live = [n, ...live];
+    }
+    window.addEventListener('counter:notification', onLive);
+    return () => window.removeEventListener('counter:notification', onLive);
+  });
 
   // Turn each notification type into the phrase shown next to the actor's name.
   // Keyed by the type union so adding a new notification type is a compile error
@@ -24,6 +51,7 @@
     follow: 'followed you',
     mention: 'mentioned you',
     message: 'sent you a message',
+    tunnel_invite: 'invited you to Tunnel Talk',
   };
 
   // Where clicking the notification takes you: the conversation for a message,
@@ -40,11 +68,22 @@
 
 <div class="spread head">
   <h1 class="title">Notifications</h1>
-  <form method="POST" action="?/readAll"><button class="btn">Mark all read</button></form>
+  <form
+    method="POST"
+    action="?/readAll"
+    use:enhance={() => {
+      // Clear the nav badge immediately; the server marks the rows read.
+      badges.notifications = 0;
+      live = live.map((n) => ({ ...n, read: true }));
+      return async ({ update }) => update();
+    }}
+  >
+    <button class="btn">Mark all read</button>
+  </form>
 </div>
 
 <div class="stack">
-  {#each data.notifications.data as n (n.id)}
+  {#each items as n (n.id)}
     <a class="note panel" class:unread={!n.read} href={target(n)}>
       <Avatar user={n.actor} size={40} />
       <div class="txt">

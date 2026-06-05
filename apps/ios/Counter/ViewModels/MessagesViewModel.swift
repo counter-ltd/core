@@ -1,8 +1,10 @@
 /**
  View model for the messages inbox.
 
- Lists all conversations sorted by most recent activity. The unread badge on
- the Messages tab comes from summing `unreadCount` across all conversations.
+ Lists all conversations sorted by most recent activity. Inbound message
+ requests (conversations where the viewer is the recipient of a pending request)
+ are separated into `requests` so the UI can show them in a distinct tab.
+ The unread badge on the Messages tab sums `unreadCount` across active conversations.
  */
 
 import Foundation
@@ -11,7 +13,10 @@ import Observation
 @Observable
 final class MessagesViewModel {
 
+    /// Active conversations plus requests the viewer sent (shown in main tab).
     private(set) var conversations: [Conversation] = []
+    /// Inbound message requests the viewer received (shown in Requests tab).
+    private(set) var requests: [Conversation] = []
     private(set) var isLoading: Bool = false
     private(set) var hasMore: Bool = true
     var errorMessage: String?
@@ -34,7 +39,7 @@ final class MessagesViewModel {
         cursor = nil
         let result: APIResult<Page<Conversation>> = await env.apiClient.request(.messagesInbox())
         if case .success(let page) = result {
-            conversations = page.data
+            split(page.data)
             cursor = page.nextCursor
             hasMore = page.nextCursor != nil
         } else {
@@ -51,7 +56,10 @@ final class MessagesViewModel {
             .messagesInbox(after: cursor)
         )
         if case .success(let page) = result {
-            conversations.append(contentsOf: page.data)
+            // Append to each bucket rather than re-splitting from scratch so
+            // the current page's items land in the right place.
+            conversations.append(contentsOf: page.data.filter { !$0.isInboundRequest })
+            requests.append(contentsOf: page.data.filter { $0.isInboundRequest })
             self.cursor = page.nextCursor
             hasMore = page.nextCursor != nil
         }
@@ -66,36 +74,54 @@ final class MessagesViewModel {
               let idx = conversations.firstIndex(where: { $0.partner.username == username })
         else { return }
         let c = conversations[idx]
-        // Clear the last-message preview so the inbox row shows nothing.
-        conversations[idx] = Conversation(
-            id: c.id,
-            partner: c.partner,
-            lastMessage: nil,
-            unreadCount: 0,
-            lastMessageAt: c.lastMessageAt
-        )
+        conversations[idx] = c.cleared()
     }
 
-    /// Removes a conversation and all its messages, then drops it from the inbox list.
+    /// Removes a conversation or request, then drops it from the appropriate list.
     func deleteConversation(username: String) async {
         let result = await env.apiClient.requestEmpty(.deleteConversation(username: username))
         if case .success = result {
             conversations.removeAll { $0.partner.username == username }
+            requests.removeAll { $0.partner.username == username }
         }
     }
 
     // MARK: - Read state sync
 
-    /// Decrements the unread count for a conversation when it's been opened.
+    /// Zeros the unread count for a conversation when the thread has been opened.
     func markConversationRead(partnerId: String) {
-        guard let idx = conversations.firstIndex(where: { $0.partner.id == partnerId }) else { return }
-        let c = conversations[idx]
-        conversations[idx] = Conversation(
-            id: c.id,
-            partner: c.partner,
-            lastMessage: c.lastMessage,
-            unreadCount: 0,
-            lastMessageAt: c.lastMessageAt
+        if let idx = conversations.firstIndex(where: { $0.partner.id == partnerId }) {
+            conversations[idx] = conversations[idx].withUnreadCount(0)
+        }
+    }
+
+    // MARK: - Helpers
+
+    /// Partition a fresh page of conversations into main and requests buckets.
+    private func split(_ all: [Conversation]) {
+        conversations = all.filter { !$0.isInboundRequest }
+        requests      = all.filter { $0.isInboundRequest }
+    }
+}
+
+// MARK: - Conversation mutation helpers
+
+private extension Conversation {
+    /// Returns a copy with the last-message preview cleared and unread count zeroed.
+    func cleared() -> Conversation {
+        Conversation(
+            id: id, partner: partner, lastMessage: nil,
+            unreadCount: 0, lastMessageAt: lastMessageAt,
+            status: status, isInboundRequest: isInboundRequest
+        )
+    }
+
+    /// Returns a copy with a different unread count.
+    func withUnreadCount(_ count: Int) -> Conversation {
+        Conversation(
+            id: id, partner: partner, lastMessage: lastMessage,
+            unreadCount: count, lastMessageAt: lastMessageAt,
+            status: status, isInboundRequest: isInboundRequest
         )
     }
 }

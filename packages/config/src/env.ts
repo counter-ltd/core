@@ -68,10 +68,24 @@ const serverEnvSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(16, 'JWT_REFRESH_SECRET must be at least 16 characters'),
   JWT_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('30d'),
+  // 64-char hex AES-256 key for encrypting at-rest fields (message bodies, email,
+  // OAuth tokens, push tokens). Optional with an empty default so migrate/seed/
+  // tests that never encrypt still load; the crypto helpers throw if a real
+  // encrypt/decrypt runs against an empty key. Set via `wrangler secret put`.
+  MESSAGE_ENCRYPTION_KEY: z.string().optional().default(''),
+  // 64-char hex HMAC key for blind indexes (email + push token lookups). Kept
+  // separate from MESSAGE_ENCRYPTION_KEY so the two never share fate. Generate
+  // with `openssl rand -hex 32`.
+  BLIND_INDEX_KEY: z.string().optional().default(''),
   S3_ENDPOINT: z.string().optional().default(''),
   S3_ACCESS_KEY: z.string().optional().default(''),
   S3_SECRET_KEY: z.string().optional().default(''),
   S3_BUCKET: z.string().optional().default(''),
+  // Public origin the R2 media bucket is served from (custom domain, e.g.
+  // https://media.counter.ltd). Stored media/avatar URLs are built as
+  // `${MEDIA_PUBLIC_URL}/objects/{sha256}`. Defaults to a localhost stand-in so
+  // dev still produces well-formed URLs even before the bucket has a domain.
+  MEDIA_PUBLIC_URL: z.string().optional().default('http://localhost:3000/media-local'),
   // Apple Push credentials. All optional: when any is missing we simply don't
   // send push (local dev and tests run without them), so the inbox still works.
   // APNS_AUTH_KEY holds the .p8 contents (PEM or bare base64; the sender strips
@@ -81,6 +95,51 @@ const serverEnvSchema = z.object({
   APNS_BUNDLE_ID: z.string().optional().default(''),
   APNS_AUTH_KEY: z.string().optional().default(''),
   APNS_HOST: z.string().optional().default('https://api.push.apple.com'),
+  // Web Push (VAPID) credentials. All optional: when any is missing we skip web
+  // push, so local dev and tests run without them. The keys are an EC P-256 pair
+  // shared by every subscription. VAPID_PUBLIC_KEY is the base64url uncompressed
+  // point (the same value the browser passes to pushManager.subscribe), and
+  // VAPID_PRIVATE_KEY is the base64url 32-byte scalar. Generate a pair with
+  // `npx web-push generate-vapid-keys`. VAPID_SUBJECT is a mailto: or https URL
+  // identifying the sender, required by the spec.
+  VAPID_PUBLIC_KEY: z.string().optional().default(''),
+  VAPID_PRIVATE_KEY: z.string().optional().default(''),
+  VAPID_SUBJECT: z.string().optional().default('mailto:push@counter.ltd'),
+  // OAuth app credentials. All optional: when absent the OAuth endpoints return
+  // an error rather than starting a broken flow. Set via `wrangler secret put`
+  // in production; add to .dev.vars locally when testing the OAuth flows.
+  GITHUB_CLIENT_ID: z.string().optional().default(''),
+  GITHUB_CLIENT_SECRET: z.string().optional().default(''),
+  DISCORD_CLIENT_ID: z.string().optional().default(''),
+  DISCORD_CLIENT_SECRET: z.string().optional().default(''),
+  // Thing Two bot credentials. Optional: when absent the bot delivery is skipped.
+  // Set via `wrangler secret put` in production; add to .dev.vars locally.
+  DISCORD_BOT_TOKEN: z.string().optional().default(''),
+  DISCORD_GUILD_ID: z.string().optional().default(''),
+  // Required for the Discord interactions endpoint (slash commands + context
+  // menus). DISCORD_APP_ID identifies the application when registering commands;
+  // DISCORD_PUBLIC_KEY is the Ed25519 key Discord uses to sign every interaction
+  // payload, which we verify before trusting any incoming request.
+  DISCORD_APP_ID: z.string().optional().default(''),
+  DISCORD_PUBLIC_KEY: z.string().optional().default(''),
+  // OpenAI-compatible chat endpoint powering Thing Two's /ask command. Optional:
+  // when OPENAI_BASE_URL is missing, /ask politely declines.
+  // OPENAI_BASE_URL is the API root WITHOUT a trailing /chat/completions (e.g.
+  // https://api.openai.com/v1); the handler appends the path. Any OpenAI-shaped
+  // provider works. Set via `wrangler secret put` in production.
+  OPENAI_BASE_URL: z.string().optional().default(''),
+  // Static bearer key. Used when no Google service account is configured. Leave
+  // empty when authenticating to Vertex AI via the service account below.
+  OPENAI_API_KEY: z.string().optional().default(''),
+  OPENAI_MODEL: z.string().optional().default('gpt-4o-mini'),
+  // Google service account for Vertex AI's OpenAI-compatible endpoint. When
+  // GOOGLE_SA_PRIVATE_KEY is set, the /ask handler mints a short-lived OAuth
+  // access token (signed JWT, cached ~1h) and uses it as the bearer instead of
+  // OPENAI_API_KEY. Needed because org policy here disallows static API keys.
+  // The private key may contain literal "\n" (as in the SA JSON); the auth code
+  // normalizes them. Set via `wrangler secret put` in production.
+  GOOGLE_SA_CLIENT_EMAIL: z.string().optional().default(''),
+  GOOGLE_SA_PRIVATE_KEY: z.string().optional().default(''),
   PUBLIC_API_URL: z.string().url().default('http://localhost:3000'),
   // API-specific port. We deliberately do NOT read a bare `PORT`: in a monorepo
   // dev setup the web framework also claims PORT, and some harnesses inject it,

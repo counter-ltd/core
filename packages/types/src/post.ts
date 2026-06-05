@@ -20,16 +20,58 @@ const bodySchema = z
   .min(1, 'A post needs a body or media')
   .max(POST.MAX_BODY_LENGTH);
 
-/** One uploaded attachment as the client describes it when creating a post. */
+/**
+ * One attachment as the client references it when creating a post.
+ *
+ * The client no longer supplies a free-form `url`: it first uploads the bytes
+ * to POST /media (which validates and stores them) and then attaches the
+ * returned object id here. The server resolves the URL, dimensions, and MIME
+ * from that object, so a caller can't point a post at arbitrary external media.
+ * `altText` stays client-supplied since it's per-attachment, not per-blob.
+ */
 export const mediaInputSchema = z.object({
-  url: z.string().url(),
-  mimeType: z.string().min(1),
-  width: z.number().int().positive().optional(), // pixels; omitted for non-image media
-  height: z.number().int().positive().optional(),
-  sizeBytes: z.number().int().positive().optional(),
+  objectId: z.string().uuid(),
   altText: z.string().max(1000).optional(), // accessibility description
 });
 export type MediaInput = z.infer<typeof mediaInputSchema>;
+
+/** What POST /media returns after validating and storing an upload. */
+export interface MediaUploadResponse {
+  /** The `media_objects` id to attach to a post or set as an avatar. */
+  id: string;
+  /** Public URL the bytes are served from. */
+  url: string;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
+  sizeBytes: number;
+}
+
+/**
+ * Structured metadata for a post created by sharing a Discord message.
+ * Stored in `posts.source_meta`; used by clients to render a quote card.
+ * Falls back gracefully: clients that don't understand this field can render
+ * the plain text body instead.
+ */
+export interface DiscordShareMeta {
+  type: 'discord_share';
+  /** Original message text from Discord. */
+  content: string;
+  /** Discord display name (global_name or username). */
+  authorName: string;
+  /** Discriminator tag, e.g. "1234". Null for accounts on the new username system. */
+  authorDiscordTag: string | null;
+  /** Discord snowflake ID — used to build the profile link. */
+  authorDiscordId: string;
+  /** Counter username when the author has a linked account, otherwise null. */
+  authorCounterUsername: string | null;
+  /**
+   * URL of the author's Discord avatar, ingested into our own media storage so
+   * the card doesn't hotlink Discord's CDN. Null when they use a default avatar
+   * or the fetch failed (the card falls back to initials).
+   */
+  authorAvatarUrl: string | null;
+}
 
 /** Body for creating a top-level post (or a repost/quote of another post). */
 export const createPostSchema = z.object({
@@ -81,6 +123,8 @@ export interface PostCounts {
 export interface Post {
   id: string;
   body: string | null; // null for a bare repost that carries no quote text
+  /** Rich card metadata set when this post was created via an integration. */
+  sourceMeta: DiscordShareMeta | null;
   author: PublicUser;
   parentId: string | null; // set when this post is a reply; null for top-level
   repostOf: Post | null; // the original when this is a repost/quote, else null
@@ -97,6 +141,11 @@ export interface Post {
     liked: boolean;
     reposted: boolean;
   };
+  /**
+   * Up to two of the oldest direct replies, pre-fetched for feed display.
+   * Omitted when there are no replies; absent on reply posts themselves.
+   */
+  topReplies?: Post[];
 }
 
 /** A post plus its conversation: everything above it and the replies below. */

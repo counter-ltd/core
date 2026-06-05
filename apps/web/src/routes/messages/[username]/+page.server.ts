@@ -15,7 +15,7 @@
 import { redirect, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { apiFetch } from '$lib/server/api';
-import type { DirectMessage, DeviceKey, Page, PublicUser } from '@counter/types';
+import type { DirectMessage, DeviceKey, Page, PublicUser, ConversationInfo, TunnelSession } from '@counter/types';
 
 export const load: PageServerLoad = async ({ params, url, locals, fetch }) => {
   if (!locals.user) throw redirect(303, '/login');
@@ -23,8 +23,8 @@ export const load: PageServerLoad = async ({ params, url, locals, fetch }) => {
   const { username } = params;
   const after = url.searchParams.get('after') ?? undefined;
 
-  const [messagesRes, partnerKeyRes, myKeyRes, , partnerProfileRes] = await Promise.all([
-    apiFetch<Page<DirectMessage>>(`/messages/${username}`, {
+  const [messagesRes, partnerKeyRes, myKeyRes, , partnerProfileRes, convInfoRes, pendingTunnelRes] = await Promise.all([
+    apiFetch<Page<DirectMessage> & { tunnelSessions?: Record<string, unknown> }>(`/messages/${username}`, {
       query: { after, limit: 40 },
       token: locals.accessToken,
       fetch,
@@ -49,14 +49,35 @@ export const load: PageServerLoad = async ({ params, url, locals, fetch }) => {
       token: locals.accessToken,
       fetch,
     }),
+    // Request state so the thread can show accept/decline or a pending banner.
+    apiFetch<ConversationInfo>(`/messages/${username}/info`, {
+      token: locals.accessToken,
+      fetch,
+    }),
+    // Check for an incoming Tunnel Talk invite from this partner.
+    locals.accessToken
+      ? apiFetch<{ pending: boolean; session: TunnelSession | null }>(`/tunnel/${username}/pending`, {
+          token: locals.accessToken,
+          fetch,
+        })
+      : Promise.resolve({ ok: false as const, data: null, status: 401, error: null }),
   ]);
+
+  const messagesData = messagesRes.ok ? messagesRes.data : { data: [], nextCursor: null, tunnelSessions: {} };
 
   return {
     username,
-    messages: messagesRes.ok ? messagesRes.data : { data: [], nextCursor: null },
+    messages: messagesData,
+    tunnelSessions: (messagesData as { tunnelSessions?: Record<string, unknown> }).tunnelSessions ?? {},
     partnerDeviceKeys: partnerKeyRes.ok ? partnerKeyRes.data.keys : [],
     myDeviceKeys: myKeyRes.ok && myKeyRes.data ? myKeyRes.data.keys : [],
     partnerPresence: partnerProfileRes?.ok ? partnerProfileRes.data.presence ?? null : null,
+    convInfo: convInfoRes?.ok ? convInfoRes.data : { status: null, isInboundRequest: false },
+    // accessToken is passed to the client so TunnelTalk can make direct API calls.
+    accessToken: locals.accessToken ?? null,
+    pendingTunnel: pendingTunnelRes?.ok && pendingTunnelRes.data?.pending
+      ? pendingTunnelRes.data.session
+      : null,
   };
 };
 
@@ -77,7 +98,20 @@ export const actions: Actions = {
 
     if (!res.ok) return fail(res.status, { error: res.error?.message ?? 'Failed to send message' });
 
-    // Redirect clears the form so a browser refresh won't re-submit it.
+    // Return the stored message so the client can swap out the optimistic
+    // placeholder immediately without waiting for the live socket echo.
+    // No redirect here — skipping the full page refetch is what makes send feel instant.
+    return { message: res.data as DirectMessage };
+  },
+
+  // Accepts an inbound message request, switching it to an active conversation.
+  accept: async ({ params, locals }) => {
+    if (!locals.accessToken) throw redirect(303, '/login');
+    const res = await apiFetch(`/messages/${params.username}/accept`, {
+      method: 'POST',
+      token: locals.accessToken,
+    });
+    if (!res.ok) return fail(res.status, { error: res.error?.message ?? 'Could not accept request' });
     throw redirect(303, `/messages/${params.username}`);
   },
 

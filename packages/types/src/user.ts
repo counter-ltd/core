@@ -11,9 +11,10 @@
  * see (their email) are added by PrivateUser.
  */
 import { z } from 'zod';
-import { USER, PRESENCE } from '@counter/config';
-import type { PresenceVisibility } from '@counter/config';
+import { USER, PRESENCE, MESSAGING } from '@counter/config';
+import type { PresenceVisibility, MessagingPrivacy, Permission, UserStatus } from '@counter/config';
 import type { TrustBadge } from './trust.ts';
+import type { GroupSummary } from './admin.ts';
 
 // Usernames are lowercased before the pattern check, so the stored form is
 // canonical and lookups stay case-insensitive. The transform runs first, then
@@ -53,7 +54,11 @@ export const updateProfileSchema = z
   .object({
     displayName: z.string().max(USER.MAX_DISPLAY_NAME_LENGTH).nullable(),
     bio: z.string().max(USER.MAX_BIO_LENGTH).nullable(),
-    avatarUrl: z.string().url().nullable(),
+    // The avatar is set by reference: the client uploads to POST /media and
+    // sends the returned object id here, or null to clear it. The server
+    // resolves the served URL, so a client can't point an avatar at an arbitrary
+    // external image.
+    avatarObjectId: z.string().uuid().nullable(),
   })
   .partial();
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
@@ -69,13 +74,17 @@ export interface UserPresence {
   lastSeenAt: string | null;
 }
 
-/** The user's own presence configuration, returned only on their private profile. */
+/** The user's own presence and messaging-privacy configuration, returned only on their private profile. */
 export interface PresenceSettings {
   onlineStatusEnabled: boolean;
   onlineStatusVisibility: PresenceVisibility;
   lastSeenEnabled: boolean;
   lastSeenVisibility: PresenceVisibility;
   heartbeatIntervalSeconds: number;
+  /** Controls who can start a new conversation with this user. */
+  messagingPrivacy: MessagingPrivacy;
+  /** When on, this user's typing is shown to whoever they're chatting with. */
+  typingIndicatorsEnabled: boolean;
 }
 
 /** Partial update body for `PUT /users/me/presence`. All fields are optional. */
@@ -90,6 +99,8 @@ export const presenceSettingsSchema = z
       .int()
       .min(PRESENCE.MIN_HEARTBEAT_INTERVAL)
       .max(PRESENCE.MAX_HEARTBEAT_INTERVAL),
+    messagingPrivacy: z.enum(MESSAGING.PRIVACY_OPTIONS),
+    typingIndicatorsEnabled: z.boolean(),
   })
   .partial();
 export type PresenceSettingsInput = z.infer<typeof presenceSettingsSchema>;
@@ -118,6 +129,8 @@ export interface PublicUser {
   viewer?: {
     isFollowing: boolean;
     isSelf: boolean; // true when looking at your own profile
+    /** Only present on self: whether online status broadcasting is turned on. */
+    onlineStatusEnabled?: boolean;
   };
   /**
    * Online status and last-seen, when visible to this viewer. Null means the
@@ -131,4 +144,14 @@ export interface PublicUser {
 export interface PrivateUser extends PublicUser {
   email: string; // only ever exposed to the account holder
   presenceSettings: PresenceSettings;
+  /**
+   * The groups this account belongs to and the permissions they add up to. Both
+   * are the account holder's own, returned so a client can decide whether to show
+   * the admin panel and which controls inside it to enable. `permissions` is the
+   * union across `groups`; a normal user gets two empty arrays.
+   */
+  groups: GroupSummary[];
+  permissions: Permission[];
+  /** Moderation state. Always 'active' for anyone who can reach this endpoint. */
+  status: UserStatus;
 }

@@ -22,7 +22,7 @@ import type { ErrorResponse } from '@counter/types';
  * The branches are ordered most-specific to least. Our own `AppError` already
  * carries a code and status, so it passes straight through. Everything else is
  * mapped onto a known code, and anything we didn't anticipate falls to the
- * catch-all 500 with a deliberately vague message.
+ * catch-all 500 with the real error message so bugs surface instead of hiding.
  */
 export function onError(err: Error, c: Context): Response {
   if (err instanceof AppError) {
@@ -45,11 +45,9 @@ export function onError(err: Error, c: Context): Response {
     );
   }
 
-  // Unknown error: log the real thing server-side for debugging, but hand the
-  // client a generic message so we never leak a stack trace or internal detail.
   console.error('Unhandled error:', err);
   return c.json<ErrorResponse>(
-    { error: { code: ERROR_CODES.INTERNAL, message: 'Something went wrong' } },
+    { error: { code: ERROR_CODES.INTERNAL, message: err.message || 'Internal server error' } },
     500,
   );
 }

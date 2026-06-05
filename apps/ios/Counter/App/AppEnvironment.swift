@@ -15,6 +15,8 @@
 
 import Foundation
 import Observation
+import AuthenticationServices
+import UIKit
 
 @Observable
 final class AppEnvironment {
@@ -151,6 +153,46 @@ final class AppEnvironment {
         return true
     }
 
+    // MARK: - OAuth account linking
+
+    // Retained for the duration of the ASWebAuthenticationSession.
+    private var oauthContext: OAuthPresentationContext?
+
+    /**
+     Open the provider's OAuth consent page and link it to the current account.
+
+     Calls the prepare endpoint (with the Bearer token) to get the auth URL, then
+     opens it in an ASWebAuthenticationSession. The callback is caught via the
+     counter:// scheme. Returns true if the link completed successfully.
+     */
+    @discardableResult
+    func oauthConnect(provider: OAuthProvider) async -> Bool {
+        let result: APIResult<OAuthConnectPrepareResponse> = await apiClient.request(
+            .oauthConnectPrepare(provider: provider)
+        )
+        guard case .success(let prepared) = result,
+              let url = URL(string: prepared.authUrl) else { return false }
+
+        do {
+            _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+                let context = OAuthPresentationContext()
+                oauthContext = context
+                let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "counter") { url, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else if let url { continuation.resume(returning: url) }
+                }
+                session.presentationContextProvider = context
+                session.prefersEphemeralWebBrowserSession = false
+                session.start()
+            }
+            return true
+        } catch ASWebAuthenticationSessionError.canceledLogin {
+            return false
+        } catch {
+            return false
+        }
+    }
+
     // MARK: - Internal
 
     private func restoreAccount(_ account: StoredAccount) async -> Bool {
@@ -195,5 +237,20 @@ final class AppEnvironment {
         }
 
         return false
+    }
+}
+
+// MARK: - OAuthPresentationContext
+
+/// Provides the key window as the presentation anchor for ASWebAuthenticationSession.
+///
+/// Stored as a strong reference on AppEnvironment because the session holds a
+/// weak pointer to its context provider and will crash if it's released early.
+private final class OAuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow } ?? UIWindow()
     }
 }

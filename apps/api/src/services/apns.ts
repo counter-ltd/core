@@ -15,6 +15,7 @@
  */
 import { loadServerEnv } from '@counter/config/env';
 import { db, devices, notifications, users, eq, and, count } from '@counter/db';
+import { decryptField } from '../lib/crypto.ts';
 import type { NotificationType } from '@counter/config';
 
 /** What a push needs to render and route on the device. */
@@ -109,6 +110,8 @@ function alertText(type: NotificationType, actorName: string): { title: string; 
       return { title: actorName, body: 'mentioned you' };
     case 'message':
       return { title: actorName, body: 'sent you a message' };
+    case 'tunnel_invite':
+      return { title: actorName, body: 'invited you to Tunnel Talk' };
   }
 }
 
@@ -158,9 +161,13 @@ export async function deliverPush(userId: string, payload: PushPayload): Promise
     actorUsername: actor?.username ?? null,
   });
 
+  // Tokens are stored encrypted, so decrypt each one right before the call to
+  // Apple. We track the device by row id (not the token) so a dead-token prune
+  // doesn't need the plain-text value again.
   const results = await Promise.allSettled(
-    rows.map((d) =>
-      fetch(`${env.APNS_HOST}/3/device/${d.token}`, {
+    rows.map(async (d) => {
+      const token = await decryptField(d.token, env.MESSAGE_ENCRYPTION_KEY);
+      const res = await fetch(`${env.APNS_HOST}/3/device/${token}`, {
         method: 'POST',
         headers: {
           authorization: `bearer ${jwt}`,
@@ -169,19 +176,20 @@ export async function deliverPush(userId: string, payload: PushPayload): Promise
           'apns-priority': '10',
         },
         body: apsBody,
-      }).then((res) => ({ token: d.token, status: res.status })),
-    ),
+      });
+      return { id: d.id, status: res.status };
+    }),
   );
 
   // A 410 (or 400 BadDeviceToken) means Apple has retired that token, so drop it
   // rather than keep paying to push into the void on every future notification.
   const dead = results
     .filter(
-      (r): r is PromiseFulfilledResult<{ token: string; status: number }> =>
+      (r): r is PromiseFulfilledResult<{ id: string; status: number }> =>
         r.status === 'fulfilled' && (r.value.status === 410 || r.value.status === 400),
     )
-    .map((r) => r.value.token);
-  for (const token of dead) {
-    await db.delete(devices).where(eq(devices.token, token));
+    .map((r) => r.value.id);
+  for (const id of dead) {
+    await db.delete(devices).where(eq(devices.id, id));
   }
 }
