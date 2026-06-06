@@ -20,7 +20,10 @@ import type { Cookies } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import type { TokenPair } from '@counter/types';
 
+/** Cookie name that holds the active account's short-lived access token. */
 export const ACCESS_COOKIE = 'counter_access';
+
+/** Cookie name that holds the JSON array of all signed-in accounts. */
 export const ACCOUNTS_COOKIE = 'counter_accounts';
 
 /** A signed-in account as stored in the accounts cookie. Server-only. */

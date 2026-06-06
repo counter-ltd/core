@@ -200,7 +200,7 @@ interface AttributionResult {
  */
 async function buildAttribution(discordAuthor: DiscordUser): Promise<AttributionResult> {
   const displayName = discordAuthor.global_name || discordAuthor.username;
-  // Discriminator "0" means the account migrated to the new username system — treat as absent.
+  // Discriminator "0" means the account migrated to the new username system, so treat it as absent.
   const tag = discordAuthor.discriminator && discordAuthor.discriminator !== '0'
     ? discordAuthor.discriminator
     : null;
@@ -512,10 +512,12 @@ export interface AskEnv {
   GOOGLE_SA_CLIENT_EMAIL: string;
   GOOGLE_SA_PRIVATE_KEY: string;
   // The persona/lore prompt, loaded from secrets so it stays out of the repo and
-  // split in two to fit Cloudflare's per-secret size cap. Concatenated at use;
-  // both empty falls back to FALLBACK_SYSTEM_PROMPT.
+  // split across several parts to fit Cloudflare's per-secret size cap. The parts
+  // are concatenated at use; all empty falls back to FALLBACK_SYSTEM_PROMPT. The
+  // third part is only set when the prompt is long enough to need it.
   THING_TWO_SYSTEM_PROMPT: string;
   THING_TWO_SYSTEM_PROMPT_2: string;
+  THING_TWO_SYSTEM_PROMPT_3?: string;
 }
 
 /**
@@ -667,8 +669,12 @@ async function callChatModel(env: AskEnv, prompt: string): Promise<string> {
       messages: [
         {
           role: 'system',
-          // Rejoin the two secret halves; fall back when neither is configured.
-          content: env.THING_TWO_SYSTEM_PROMPT + env.THING_TWO_SYSTEM_PROMPT_2 || FALLBACK_SYSTEM_PROMPT,
+          // Rejoin the secret parts; fall back when none is configured. Each part
+          // may be missing, so coalesce before concatenating to avoid "undefined".
+          content:
+            (env.THING_TWO_SYSTEM_PROMPT ?? '') +
+              (env.THING_TWO_SYSTEM_PROMPT_2 ?? '') +
+              (env.THING_TWO_SYSTEM_PROMPT_3 ?? '') || FALLBACK_SYSTEM_PROMPT,
         },
         { role: 'user', content: prompt },
       ],

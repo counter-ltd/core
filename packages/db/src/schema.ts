@@ -664,6 +664,10 @@ export const themes = pgTable(
     description: text('description'),
     variables: jsonb('variables').notNull(),
     published: boolean('published').default(true).notNull(),
+    // True for the curated catalog Counter ships. Set only by the seed, never by
+    // any API, so a user can't pass their own theme off as official. The Browse
+    // gallery lists these first.
+    official: boolean('official').default(false).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },

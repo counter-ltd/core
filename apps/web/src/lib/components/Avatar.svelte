@@ -5,15 +5,10 @@
 -->
 <script lang="ts">
   /**
-   * A user's avatar, linking to their profile. Shows their picture when they
-   * have one, otherwise falls back to the first letter of their name.
-   *
-   * Props:
-   *   user  Just the bits we need to render and link: username, displayName,
-   *         and avatarUrl. We take a narrow Pick so callers can hand us a
-   *         partial user without owning a whole PublicUser.
-   *   size  Edge length in pixels. Drives both the box and the initial's font
-   *         size, so one number scales the whole thing.
+   * Renders a user's avatar as a link to their profile. Shows their picture
+   * when available, otherwise falls back to the first letter of their name.
+   * Accepts a narrow Pick of PublicUser so callers don't need a full user
+   * object, and a numeric size prop that scales the box and initial together.
    */
   import type { PublicUser } from '@counter/types';
 

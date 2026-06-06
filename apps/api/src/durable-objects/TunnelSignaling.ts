@@ -20,9 +20,15 @@
 
 import type { SignalingMessage } from '@counter/types';
 
-/** Tags attached to each WebSocket so we can look up the user on wake. */
+/** The userId stamped on each WebSocket so we can identify the peer after hibernation wakes. */
 type PeerTag = string; // the userId
 
+/**
+ * Durable Object that brokers WebRTC signaling for a single Tunnel Talk session.
+ *
+ * Uses the Hibernatable WebSocket API so the isolate can sleep between messages
+ * rather than staying active for the full session lifetime.
+ */
 export class TunnelSignaling {
   private state: DurableObjectState;
 

@@ -6,11 +6,11 @@
  * OAuth platform integration endpoints: connect GitHub or Discord to a Counter
  * account, sign in via either provider, and manage linked credentials.
  *
- * Two actions share the callback routes but diverge on what happens after:
- *  - 'login'   — unauthenticated; finds/creates a Counter user, issues a
- *                short-lived session code, redirects to the web login callback.
- *  - 'connect' — requires an existing session; links the provider to the
- *                current user and auto-verifies their profile integration badge.
+ * Two actions share the callback routes but diverge on what happens after.
+ * "login" is unauthenticated: it finds or creates a Counter user, issues a
+ * short-lived session code, and redirects to the web login callback. "connect"
+ * requires an existing session: it links the provider to the current user and
+ * auto-verifies their profile integration badge.
  *
  * On any callback error the handler redirects rather than returning JSON, so
  * the browser always lands on a usable page instead of a raw error response.
@@ -49,6 +49,7 @@ import type { DiscordUser } from '../services/discord-post.ts';
 import { decryptField } from '../lib/crypto.ts';
 import type { AppEnv } from '../types.ts';
 
+/** Hono router mounted at /oauth. Covers the full OAuth lifecycle for GitHub and Discord. */
 export const oauthRoutes = new Hono<AppEnv>();
 
 // --- helpers ---
@@ -66,7 +67,9 @@ function callbackUrl(provider: OAuthProvider, webUrl: string): string {
 
 /** Where to send the browser after a successful or failed connect flow. */
 function connectRedirect(webUrl: string, provider: OAuthProvider, error?: string): string {
-  const base = `${webUrl}/settings`;
+  // Settings now lives under per-section routes; the OAuth result belongs on
+  // Connections, which is the page that reads ?connected / ?oauthError.
+  const base = `${webUrl}/settings/connections`;
   return error
     ? `${base}?oauthError=${encodeURIComponent(error)}`
     : `${base}?connected=${provider}`;

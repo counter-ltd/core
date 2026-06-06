@@ -40,6 +40,12 @@ import type { LiveSignal, LiveClientSignal } from '@counter/types';
  */
 type SocketTags = [userId: string, canType: string];
 
+/**
+ * Durable Object that manages the live WebSocket channel for one private conversation.
+ *
+ * One instance per conversation pair, handling message fan-out, typing relay,
+ * and presence tracking for all connected sockets on both sides.
+ */
 export class ConversationHub {
   private state: DurableObjectState;
 

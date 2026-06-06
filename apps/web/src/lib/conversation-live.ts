@@ -27,6 +27,11 @@ function toWsUrl(username: string, token: string): string {
   return `${wsBase}/messages/${encodeURIComponent(username)}/live?token=${encodeURIComponent(token)}`;
 }
 
+/**
+ * Manages the live WebSocket connection for a single conversation thread.
+ * Assign callbacks to the public `on*` properties before or after construction;
+ * call `close()` when the thread goes off screen.
+ */
 export class ConversationLive {
   private ws: WebSocket | null = null;
   private username: string;

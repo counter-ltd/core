@@ -26,6 +26,11 @@ function toWsUrl(token: string): string {
   return `${wsBase}/notifications/live?token=${encodeURIComponent(token)}`;
 }
 
+/**
+ * Long-lived WebSocket connection to the user's notification stream.
+ * Construct once per session and assign `onNotification` to react to
+ * incoming events. Call `close()` when the session ends.
+ */
 export class NotificationsLive {
   private ws: WebSocket | null = null;
   private token: string;
@@ -54,6 +59,7 @@ export class NotificationsLive {
       try {
         signal = JSON.parse(event.data as string) as NotificationLiveSignal;
       } catch {
+        // Malformed frames from the server are a no-op; don't crash the feed.
         return;
       }
       if (signal.type === 'notification') this.onNotification?.(signal.notification);
@@ -61,6 +67,8 @@ export class NotificationsLive {
 
     ws.onclose = () => {
       if (this.closed) return;
+      // Exponential backoff capped at 30 s so a prolonged disconnect doesn't
+      // stretch reconnect attempts out indefinitely.
       const delay = Math.min(1000 * 2 ** this.retries, 30_000);
       this.retries++;
       setTimeout(() => this.connect(), delay);

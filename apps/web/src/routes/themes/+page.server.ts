@@ -14,7 +14,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { apiFetch } from '$lib/server/api';
-import { THEME_COLOR_TOKENS } from '$lib/theme';
+import { defaultThemeVars, expandThemeVars } from '$lib/theme';
 import type { Page, Theme, ThemeLibrary } from '@counter/types';
 
 export const load: PageServerLoad = async ({ url, locals, fetch }) => {
@@ -42,17 +42,20 @@ export const load: PageServerLoad = async ({ url, locals, fetch }) => {
 };
 
 /**
- * Pull the colour map out of a submitted form, one entry per editable token.
+ * Build the full variable map from a submitted editor form.
  *
- * Each missing field falls back to that token's default, so a partial submission
- * still yields a complete, usable theme rather than a half-coloured one.
+ * The editor posts a hidden input per token (colours and style knobs alike), all
+ * named `--something`, so we take every `--` field generically rather than
+ * enumerate keys here. Defaults fill anything the form omits, then
+ * `expandThemeVars` derives the tokens the CSS needs (font stacks, the radius
+ * scale) so the stored theme is self-contained.
  */
 function readVariables(form: FormData): Record<string, string> {
-  const variables: Record<string, string> = {};
-  for (const token of THEME_COLOR_TOKENS) {
-    variables[token.key] = String(form.get(token.key) ?? token.default);
+  const variables = defaultThemeVars();
+  for (const [key, value] of form.entries()) {
+    if (key.startsWith('--') && typeof value === 'string') variables[key] = value;
   }
-  return variables;
+  return expandThemeVars(variables);
 }
 
 export const actions: Actions = {

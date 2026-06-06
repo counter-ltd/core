@@ -77,6 +77,7 @@ export interface Theme {
   description: string | null;
   variables: ThemeVariables;
   published: boolean; // false keeps it private to its author
+  official: boolean; // part of Counter's curated catalog; set only by the seed
   author: { id: string; username: string } | null; // null for built-in/system themes
   createdAt: string;
   updatedAt: string;

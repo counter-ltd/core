@@ -60,6 +60,134 @@ export function previewVars(map: Record<string, string>): string {
     .join(';');
 }
 
+// --- Style tokens: typography, geometry, surface ---
+
+/**
+ * Font stacks the editor's font-design control maps onto, keyed by the semantic
+ * `--font-design` value (the cross-platform knob iOS also reads). `mono` reuses
+ * the base mono stack so it matches the headings face.
+ */
+export const FONT_STACKS = {
+  default: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, sans-serif',
+  mono: "'Berkeley Mono', ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace",
+  serif: 'ui-serif, Georgia, Cambria, "Times New Roman", serif',
+  rounded: '"SF Pro Rounded", ui-rounded, "Hiragino Maru Gothic ProN", system-ui, sans-serif',
+} as const;
+
+/**
+ * A non-colour editor control. Each owns one canonical `--token` whose value the
+ * editor stores as a full CSS string; the visible widget parses the number or
+ * choice out of it. Dependent tokens (font stacks, the radius scale) are derived
+ * from these by {@link expandThemeVars}, not stored separately.
+ */
+export type StyleControl =
+  | {
+      kind: 'select';
+      key: string;
+      label: string;
+      group: StyleGroup;
+      default: string;
+      options: { value: string; label: string }[];
+    }
+  | {
+      kind: 'range';
+      key: string;
+      label: string;
+      group: StyleGroup;
+      default: string;
+      min: number;
+      max: number;
+      step: number;
+      unit: string;
+    }
+  | { kind: 'toggle'; key: string; label: string; group: StyleGroup; default: string; on: string; off: string };
+
+export type StyleGroup = 'type' | 'shape' | 'surface';
+
+/** Soft drop shadow the surface "Shadow" toggle turns on. */
+const GLASS_SHADOW = '0 8px 30px rgba(0,0,0,0.45)';
+
+/** The non-colour controls, in display order, grouped for the editor. */
+export const THEME_STYLE_CONTROLS: StyleControl[] = [
+  {
+    kind: 'select',
+    key: '--font-design',
+    label: 'Font',
+    group: 'type',
+    default: 'default',
+    options: [
+      { value: 'default', label: 'System' },
+      { value: 'mono', label: 'Monospace' },
+      { value: 'serif', label: 'Serif' },
+      { value: 'rounded', label: 'Rounded' },
+    ],
+  },
+  { kind: 'range', key: '--letter-spacing', label: 'Letter spacing', group: 'type', default: '0em', min: -0.04, max: 0.16, step: 0.005, unit: 'em' },
+  { kind: 'range', key: '--radius', label: 'Corner roundness', group: 'shape', default: '3px', min: 0, max: 24, step: 1, unit: 'px' },
+  { kind: 'range', key: '--density', label: 'Density', group: 'shape', default: '1', min: 0.85, max: 1.3, step: 0.05, unit: '' },
+  { kind: 'range', key: '--surface-blur', label: 'Surface blur', group: 'surface', default: '0px', min: 0, max: 28, step: 1, unit: 'px' },
+  { kind: 'range', key: '--surface-opacity', label: 'Surface opacity', group: 'surface', default: '1', min: 0.2, max: 1, step: 0.02, unit: '' },
+  { kind: 'range', key: '--surface-saturate', label: 'Backdrop vividness', group: 'surface', default: '100%', min: 100, max: 220, step: 5, unit: '%' },
+  { kind: 'toggle', key: '--surface-shadow', label: 'Drop shadow', group: 'surface', default: 'none', on: GLASS_SHADOW, off: 'none' },
+];
+
+/** Every token key the editor manages (colours + style controls). */
+export const ALL_THEME_KEYS: string[] = [
+  ...THEME_COLOR_TOKENS.map((t) => t.key),
+  ...THEME_STYLE_CONTROLS.map((c) => c.key),
+];
+
+/** A complete default variable map: colour defaults plus style-control defaults. */
+export function defaultThemeVars(): Record<string, string> {
+  const vars: Record<string, string> = {};
+  for (const t of THEME_COLOR_TOKENS) vars[t.key] = t.default;
+  for (const c of THEME_STYLE_CONTROLS) vars[c.key] = c.default;
+  return vars;
+}
+
+/**
+ * Expand the editor's canonical tokens into the full set the CSS consumes.
+ *
+ * The editor stores one knob per concept (`--font-design`, `--radius`); the base
+ * stylesheet needs the resolved tokens (`--font`, `--font-heading`, and the
+ * `--radius-sm|-lg` scale). Deriving them here, at apply and submit time, keeps
+ * the stored theme self-contained so the web renders correctly while iOS reads
+ * the canonical `--font-design` / `--radius` it understands.
+ */
+export function expandThemeVars(vars: Record<string, string>): Record<string, string> {
+  const out = { ...vars };
+
+  const design = (vars['--font-design'] ?? 'default') as keyof typeof FONT_STACKS;
+  const stack = FONT_STACKS[design] ?? FONT_STACKS.default;
+  out['--font'] = design === 'default' ? FONT_STACKS.default : stack;
+  // Headings stay mono on the system default (the machine look); any other
+  // design carries through to headings so the whole face changes together.
+  out['--font-heading'] = design === 'default' ? FONT_STACKS.mono : stack;
+
+  // Derive the radius scale from the single roundness value so corners stay in
+  // proportion (small chips tighter, large cards looser, pills always round).
+  const r = parseFloat(vars['--radius'] ?? '3') || 0;
+  out['--radius-sm'] = `${Math.max(0, Math.round(r * 0.6))}px`;
+  out['--radius-lg'] = `${Math.round(r * 1.6)}px`;
+  out['--radius-pill'] = '999px';
+
+  return out;
+}
+
+/**
+ * Pull just the canonical knobs out of a stored (already-expanded) theme, so an
+ * existing theme loads back into the editor controls. Missing keys fall back to
+ * the default, which is how an old colours-only theme opens with sane style
+ * defaults instead of blanks.
+ */
+export function canonicalVarsFrom(stored: Record<string, string>): Record<string, string> {
+  const base = defaultThemeVars();
+  for (const key of ALL_THEME_KEYS) {
+    if (stored[key] !== undefined) base[key] = stored[key];
+  }
+  return base;
+}
+
 /**
  * Apply a theme's variable overrides to the document root, replacing whatever
  * theme was applied before.

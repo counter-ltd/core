@@ -38,7 +38,10 @@
 
 <svelte:head><title>Admin · Counter</title></svelte:head>
 
-<h1 class="title">Admin</h1>
+<header class="admin-head">
+  <p class="eyebrow">control panel</p>
+  <h1 class="title">Admin</h1>
+</header>
 
 <nav class="tabs" aria-label="Admin sections">
   {#each sections as s (s.href)}
@@ -49,11 +52,28 @@
 {@render children()}
 
 <style>
+  .admin-head {
+    margin-bottom: var(--space-4);
+  }
+  /* A small machine-type kicker over the title: orients you without a second
+     heading competing for weight. */
+  .eyebrow {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 0.64rem;
+    color: var(--color-text-faint);
+    margin: 0 0 var(--space-1);
+  }
+  .title {
+    margin: 0;
+    font-size: 1.9rem;
+  }
   .tabs {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-1);
-    margin-bottom: var(--space-4);
+    margin-bottom: var(--space-5);
     border-bottom: 1px solid var(--color-border);
   }
   .tab {
@@ -62,13 +82,19 @@
     padding: var(--space-2) var(--space-3);
     color: var(--color-text-dim);
     border-bottom: 2px solid transparent;
+    border-radius: var(--radius) var(--radius) 0 0;
     margin-bottom: -1px;
+    transition: color 0.12s ease, background 0.12s ease;
   }
   .tab:hover {
     color: var(--color-text);
+    background: var(--color-surface-strong);
   }
   .tab.active {
     color: var(--color-accent);
     border-bottom-color: var(--color-accent);
+  }
+  .tab.active:hover {
+    background: transparent;
   }
 </style>

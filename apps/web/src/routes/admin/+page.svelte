@@ -43,30 +43,42 @@
 <style>
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: var(--space-3);
   }
   .stat {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding: var(--space-4);
+    padding: var(--space-4) var(--space-4) var(--space-5);
+    /* The accent rail down the left edge ties a flat grid of numbers back to the
+       one signal colour without filling the whole card. */
+    border-left: 2px solid var(--color-accent);
   }
   .num {
     font-family: var(--mono);
-    font-size: 2rem;
+    font-size: 2.4rem;
     font-weight: 600;
     line-height: 1;
+    letter-spacing: -0.02em;
   }
   .num.warn {
     color: var(--color-danger);
   }
+  /* An open-reports card with work waiting flips its rail red to match. */
+  .stat:has(.num.warn) {
+    border-left-color: var(--color-danger);
+  }
   .lbl {
-    font-size: 0.85rem;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.72rem;
     color: var(--color-text-dim);
+    margin-top: var(--space-2);
   }
   .sub {
     font-size: 0.74rem;
-    margin-top: var(--space-2);
+    margin-top: var(--space-1);
   }
 </style>

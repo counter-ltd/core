@@ -69,6 +69,13 @@ final class ThemeStore {
         return CounterPalette.resolve(base: baseline, variables: selectedTheme?.variables ?? [:])
     }
 
+    /// The non-colour facets (type, geometry, surface) for the active theme, or
+    /// the shipped defaults when nothing is applied.
+    var style: CounterStyle {
+        guard let variables = selectedTheme?.variables else { return .standard }
+        return CounterStyle.resolve(variables: variables)
+    }
+
     // MARK: - Persistence
 
     private enum Key {

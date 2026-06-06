@@ -8,9 +8,10 @@
  * filtered server-side from the `?q=` and `?status=` query params so a search
  * is a plain GET that survives a reload.
  *
- * Each action maps to one admin API call. The API is the real authority on
- * permissions, so a caller who reaches an action without the right capability
- * gets the API's 403 surfaced back as a form error rather than a silent success.
+ * All write actions accept one or more `userId` values so the UI can submit
+ * bulk operations for a multi-user selection. `removeGroup` and `resetPassword`
+ * are single-user only: the former fires from an inline badge button, the
+ * latter produces a per-user link that can't be aggregated.
  */
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -52,16 +53,18 @@ export const actions: Actions = {
   addGroup: async ({ request, locals }) => {
     if (!locals.accessToken) throw redirect(303, '/login');
     const form = await request.formData();
-    const userId = String(form.get('userId'));
+    const userIds = form.getAll('userId').map(String).filter(Boolean);
     const groupId = String(form.get('groupId'));
     if (!groupId) return fail(400, { error: 'Pick a group first.' });
-    return done(
-      await apiFetch(`/admin/users/${userId}/groups`, {
+    for (const userId of userIds) {
+      const res = await apiFetch(`/admin/users/${userId}/groups`, {
         method: 'POST',
         token: locals.accessToken,
         body: { groupId },
-      }),
-    );
+      });
+      if (!res.ok) return fail(res.status, { error: res.error?.message ?? 'Action failed.' });
+    }
+    return { saved: true };
   },
 
   removeGroup: async ({ request, locals }) => {
@@ -80,59 +83,70 @@ export const actions: Actions = {
   ban: async ({ request, locals }) => {
     if (!locals.accessToken) throw redirect(303, '/login');
     const form = await request.formData();
-    const userId = String(form.get('userId'));
+    const userIds = form.getAll('userId').map(String).filter(Boolean);
     const reason = String(form.get('reason') ?? '').trim() || null;
-    return done(
-      await apiFetch(`/admin/users/${userId}/ban`, {
+    for (const userId of userIds) {
+      const res = await apiFetch(`/admin/users/${userId}/ban`, {
         method: 'POST',
         token: locals.accessToken,
         body: { reason },
-      }),
-    );
+      });
+      if (!res.ok) return fail(res.status, { error: res.error?.message ?? 'Action failed.' });
+    }
+    return { saved: true };
   },
 
   unban: async ({ request, locals }) => {
     if (!locals.accessToken) throw redirect(303, '/login');
-    const userId = String((await request.formData()).get('userId'));
-    return done(
-      await apiFetch(`/admin/users/${userId}/unban`, { method: 'POST', token: locals.accessToken }),
-    );
+    const userIds = (await request.formData()).getAll('userId').map(String).filter(Boolean);
+    for (const userId of userIds) {
+      const res = await apiFetch(`/admin/users/${userId}/unban`, {
+        method: 'POST',
+        token: locals.accessToken,
+      });
+      if (!res.ok) return fail(res.status, { error: res.error?.message ?? 'Action failed.' });
+    }
+    return { saved: true };
   },
 
   suspend: async ({ request, locals }) => {
     if (!locals.accessToken) throw redirect(303, '/login');
     const form = await request.formData();
-    const userId = String(form.get('userId'));
+    const userIds = form.getAll('userId').map(String).filter(Boolean);
     const until = String(form.get('until') ?? '').trim();
     const reason = String(form.get('reason') ?? '').trim() || null;
     if (!until) return fail(400, { error: 'Pick an end time.' });
     // The datetime-local input has no zone; treat it as the admin's local time
     // and hand the API a full ISO string with offset.
     const iso = new Date(until).toISOString();
-    return done(
-      await apiFetch(`/admin/users/${userId}/suspend`, {
+    for (const userId of userIds) {
+      const res = await apiFetch(`/admin/users/${userId}/suspend`, {
         method: 'POST',
         token: locals.accessToken,
         body: { until: iso, reason },
-      }),
-    );
+      });
+      if (!res.ok) return fail(res.status, { error: res.error?.message ?? 'Action failed.' });
+    }
+    return { saved: true };
   },
 
   unsuspend: async ({ request, locals }) => {
     if (!locals.accessToken) throw redirect(303, '/login');
-    const userId = String((await request.formData()).get('userId'));
-    return done(
-      await apiFetch(`/admin/users/${userId}/unsuspend`, {
+    const userIds = (await request.formData()).getAll('userId').map(String).filter(Boolean);
+    for (const userId of userIds) {
+      const res = await apiFetch(`/admin/users/${userId}/unsuspend`, {
         method: 'POST',
         token: locals.accessToken,
-      }),
-    );
+      });
+      if (!res.ok) return fail(res.status, { error: res.error?.message ?? 'Action failed.' });
+    }
+    return { saved: true };
   },
 
-  // Trigger a password reset for the row. `delivery` is 'email' (mail the user a
-  // link) or 'link' (get the URL back to hand over directly). The link delivery
-  // can't go through done(), since that drops the response body; we surface the
-  // returned URL on the page so the admin can copy it.
+  // Trigger a password reset for a single user. `delivery` is 'email' (mail the
+  // user a link) or 'link' (get the URL back to hand over directly). Bulk reset
+  // isn't supported — the link delivery produces a per-user URL that can't be
+  // aggregated into one response, so this action always takes a single userId.
   resetPassword: async ({ request, locals }) => {
     if (!locals.accessToken) throw redirect(303, '/login');
     const form = await request.formData();

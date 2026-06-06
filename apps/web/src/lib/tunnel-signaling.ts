@@ -24,6 +24,13 @@ function toWsUrl(sessionId: string, token: string): string {
   return `${wsBase}/tunnel/${sessionId}/signal?token=${encodeURIComponent(token)}`;
 }
 
+/**
+ * Manages the WebSocket connection to the signaling DO for one tunnel session.
+ *
+ * Attach handlers to `onPeerJoined`, `onPeerLeft`, and `onSignal` before
+ * constructing so no early messages are missed. Call `close()` once the
+ * WebRTC data channel is open.
+ */
 export class TunnelSignaling {
   private ws: WebSocket | null = null;
   private sessionId: string;
@@ -38,6 +45,10 @@ export class TunnelSignaling {
   /** Called for offer, answer, and ice messages that WebRTC needs. */
   onSignal: ((msg: SignalingMessage) => void) | null = null;
 
+  /**
+   * @param sessionId The tunnel session ID, used to build the signaling URL.
+   * @param token Short-lived auth token that the DO validates on connect.
+   */
   constructor(sessionId: string, token: string) {
     this.sessionId = sessionId;
     this.token = token;

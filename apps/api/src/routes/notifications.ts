@@ -39,6 +39,7 @@ import {
 } from '../services/serialize.ts';
 import type { AppEnv } from '../types.ts';
 
+/** Hono router handling all notification inbox endpoints for the authenticated user. */
 export const notificationRoutes = new Hono<AppEnv>();
 
 // A notification inbox is private by definition, so the whole router is behind

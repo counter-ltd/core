@@ -15,12 +15,9 @@ import { ALGORITHM } from '@counter/config';
 import type { AlgorithmState, AlgorithmChangelogEntry } from '@counter/types';
 import type { AppEnv } from '../types.ts';
 
+/** Hono router mounted at /api/algorithm. */
 export const algorithmRoutes = new Hono<AppEnv>();
 
-/**
- * The ranking algorithm, exposed verbatim. This is the same ALGORITHM constant
- * the feed service ranks with, so what you read here is what actually runs.
- */
 algorithmRoutes.get('/', (c) => {
   const state: AlgorithmState = {
     version: ALGORITHM.version,
@@ -33,10 +30,10 @@ algorithmRoutes.get('/', (c) => {
 
 // --- changelog ---
 
-// Every tweak to weights or parameters lands here as a row, newest first, so
-// the public can audit how ranking has shifted over time. Capped at 100 because
-// this feeds a "what changed" view, not a full forensic export.
 algorithmRoutes.get('/changelog', async (c) => {
+  // Every tweak to weights or parameters lands here as a row, newest first, so
+  // the public can audit how ranking has shifted over time. Capped at 100 because
+  // this feeds a "what changed" view, not a full forensic export.
   const rows = await db
     .select()
     .from(algorithmChangelog)

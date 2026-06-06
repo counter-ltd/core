@@ -20,6 +20,7 @@
    *   cta          Label on the submit button ("Post", "Reply", etc).
    */
   import { POST } from '@counter/config';
+  import Select from '$lib/components/Select.svelte';
 
   let {
     parentId = null,
@@ -109,7 +110,7 @@
 
 <form method="POST" action="/actions/compose" class="composer panel">
   {#if parentId}<input type="hidden" name="parentId" value={parentId} />{/if}
-  <!-- When a selector is shown the <select> provides the topicId value directly.
+  <!-- When a selector is shown the Select component's hidden input provides the topicId value.
        When the topic is pre-scoped (topic page), use a hidden input instead. -->
   {#if !topics && topicId}
     <input type="hidden" name="topicId" value={topicId} />
@@ -141,16 +142,12 @@
 
   <div class="bar">
     {#if topics && topics.length > 0}
-      <select
+      <Select
         name="topicId"
         class="topic-select"
         bind:value={selectedTopicId}
-      >
-        <option value="">No topic</option>
-        {#each topics as t (t.id)}
-          <option value={t.id}>{t.name}</option>
-        {/each}
-      </select>
+        options={[{value: '', label: 'No topic'}, ...topics.map(t => ({value: t.id, label: t.name}))]}
+      />
     {:else}
       <span class="faint count">{value.length}/{POST.MAX_BODY_LENGTH}</span>
     {/if}
@@ -205,16 +202,11 @@
     gap: var(--space-3);
     margin-left: auto;
   }
-  .topic-select {
-    font-family: var(--mono);
-    font-size: 0.8rem;
-    background: var(--color-surface-strong, var(--color-bg-2));
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    padding: 3px 6px;
-    color: var(--color-text);
-    max-width: 160px;
-  }
+  /* Select component handles all visual styling; we only need the size constraint
+     and the smaller font that fits the compact composer bar. :global pierces
+     the component boundary since the class lands on Select's root element. */
+  :global(.topic-select) { max-width: 160px; }
+  :global(.topic-select .trigger) { font-size: 0.8rem; padding: 3px 6px; }
   .count {
     font-size: 0.8rem;
   }

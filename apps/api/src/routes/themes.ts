@@ -43,6 +43,7 @@ function toTheme(row: ThemeRow, author: { id: string; username: string } | null)
     description: row.description,
     variables: row.variables as ThemeVariables,
     published: row.published,
+    official: row.official,
     author,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -70,7 +71,10 @@ themeRoutes.get('/', async (c) => {
     .from(themes)
     .innerJoin(users, eq(users.id, themes.userId))
     .where(where)
-    .orderBy(desc(themes.createdAt), desc(themes.id))
+    // Official themes lead the gallery, then newest-first. The catalog is small
+    // and seeded together, so they all land on the first page; the keyset cursor
+    // still walks createdAt/id, which is enough for the long community tail.
+    .orderBy(desc(themes.official), desc(themes.createdAt), desc(themes.id))
     .limit(limit + 1);
 
   const { data: pageRows, nextCursor } = paginate(rows, limit, (r) => r.theme.id);
@@ -171,6 +175,9 @@ themeRoutes.patch('/:id', requireAuth, async (c) => {
   const row = await db.query.themes.findFirst({ where: eq(themes.id, id) });
   if (!row) throw errors.notFound('Theme not found');
   if (row.userId !== userId) throw errors.forbidden('You can only edit your own themes');
+  // Official themes are managed by the seed, not the API, so the catalog can't
+  // be edited out from under everyone who applied it.
+  if (row.official) throw errors.forbidden('Official themes cannot be edited');
 
   // Build the patch from only the fields that were actually provided, so an
   // omitted key keeps its current value rather than getting nulled out.
@@ -204,6 +211,9 @@ themeRoutes.delete('/:id', requireAuth, async (c) => {
   const row = await db.query.themes.findFirst({ where: eq(themes.id, id) });
   if (!row) throw errors.notFound('Theme not found');
   if (row.userId !== userId) throw errors.forbidden('You can only delete your own themes');
+  // Official catalog themes are off-limits even to the brand account that owns
+  // them; they're managed by the seed, not the API, so a stray tap can't wipe one.
+  if (row.official) throw errors.forbidden('Official themes cannot be deleted');
 
   // Re-assert userId in the WHERE as well as the check above, so the delete can
   // never hit another user's row even if the guard were ever bypassed.

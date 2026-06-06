@@ -19,6 +19,7 @@ import { keysetWhere, paginate } from '../lib/cursor.ts';
 import { serializePostList, serializeUsers } from '../services/serialize.ts';
 import type { AppEnv } from '../types.ts';
 
+/** Hono router for the /search group. Mounts /posts, /users, and /tags handlers. */
 export const searchRoutes = new Hono<AppEnv>();
 
 const searchQuerySchema = paginationQuerySchema.extend({

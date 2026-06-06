@@ -27,14 +27,14 @@
   {:else if data.status === 'missing'}
     <h1>Nothing to verify</h1>
     <p class="muted">This link is missing its token. Open the link from your email, or resend it from settings.</p>
-    <a class="btn" href="/settings">Settings</a>
+    <a class="btn" href="/settings/account">Settings</a>
   {:else}
     <h1>This link didn't work</h1>
     <p class="muted">
       It may have expired or already been used. You can send yourself a fresh one
       from settings.
     </p>
-    <a class="btn" href="/settings">Resend from settings</a>
+    <a class="btn" href="/settings/account">Resend from settings</a>
   {/if}
 </div>
 

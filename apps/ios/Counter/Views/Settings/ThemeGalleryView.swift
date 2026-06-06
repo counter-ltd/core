@@ -78,18 +78,24 @@ struct ThemeGalleryView: View {
                     emptyRow("Nothing yet. Make one in Create.")
                 } else {
                     ForEach(store.created) { item in
-                        row(item, store: store, badge: item.published ? nil : "Draft")
+                        row(item, store: store, badge: item.official ? "Official" : (item.published ? nil : "Draft"))
+                            // Official themes are catalog-managed: no edit or
+                            // delete, even though the brand account owns them.
                             .swipeActions(edge: .leading) {
-                                Button {
-                                    editingTheme = item
-                                    tab = .create
-                                } label: { Label("Edit", systemImage: "pencil") }
-                                .tint(theme.accent)
+                                if !item.official {
+                                    Button {
+                                        editingTheme = item
+                                        tab = .create
+                                    } label: { Label("Edit", systemImage: "pencil") }
+                                    .tint(theme.accent)
+                                }
                             }
                             .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    Task { await env.deleteTheme(item) }
-                                } label: { Label("Delete", systemImage: "trash") }
+                                if !item.official {
+                                    Button(role: .destructive) {
+                                        Task { await env.deleteTheme(item) }
+                                    } label: { Label("Delete", systemImage: "trash") }
+                                }
                             }
                     }
                 }
@@ -121,7 +127,8 @@ struct ThemeGalleryView: View {
         List {
             ForEach(store.gallery) { item in
                 let inLibrary = store.savedThemeIds.contains(item.id)
-                row(item, store: store, badge: inLibrary ? "In library" : nil)
+                let badge = item.official ? "Official" : (inLibrary ? "In library" : nil)
+                row(item, store: store, badge: badge)
                     .swipeActions(edge: .trailing) {
                         // Save lives behind a swipe, the inverse of Library's
                         // Unsave. Already-saved rows show the badge instead.

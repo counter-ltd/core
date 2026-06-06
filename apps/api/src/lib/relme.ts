@@ -72,7 +72,6 @@ export async function verifyRelMe(pageUrl: string, profileUrl: string): Promise<
     });
     if (!res.ok || !res.body) return false;
 
-    // Read up to MAX_BYTES, then stop, we only need the rel=me links.
     const reader = res.body.getReader();
     const chunks: Uint8Array[] = [];
     let total = 0;

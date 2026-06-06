@@ -143,16 +143,35 @@ const serverEnvSchema = z.object({
   // Thing Two's system prompt for /ask. Kept out of the repo on purpose (the bot
   // lore is private), so it is loaded from secrets rather than imported from code.
   // Cloudflare caps a single text secret at ~5 kB and the prompt is larger, so it
-  // is split across two secrets and concatenated at use. Set both with
+  // is split across parts and concatenated at use. Set them with
   // scripts/deploy-ask-prompt.sh, which reads private/thing-personas.mjs. Empty
-  // falls back to a bland in-code default so /ask still answers.
+  // falls back to a bland in-code default so /ask still answers. The third part is
+  // only set when the prompt is long enough; the schema must list every part or
+  // Zod strips the unlisted ones and the prompt silently loses its tail.
   THING_TWO_SYSTEM_PROMPT: z.string().optional().default(''),
   THING_TWO_SYSTEM_PROMPT_2: z.string().optional().default(''),
+  THING_TWO_SYSTEM_PROMPT_3: z.string().optional().default(''),
   // Thing One's system prompt, used by the on-Counter mention-reply bot. Same
   // deal as Thing Two: private lore, loaded from split secrets, set by
   // scripts/deploy-ask-prompt.sh from private/thing-personas.mjs.
   THING_ONE_SYSTEM_PROMPT: z.string().optional().default(''),
   THING_ONE_SYSTEM_PROMPT_2: z.string().optional().default(''),
+  THING_ONE_SYSTEM_PROMPT_3: z.string().optional().default(''),
+  // Thing Five's system prompt, used to voice his GitHub commit announcements.
+  // Same split-secret deal, set by scripts/deploy-ask-prompt.sh.
+  THING_FIVE_SYSTEM_PROMPT: z.string().optional().default(''),
+  THING_FIVE_SYSTEM_PROMPT_2: z.string().optional().default(''),
+  THING_FIVE_SYSTEM_PROMPT_3: z.string().optional().default(''),
+  // Thing Five's Discord bot token, used to post commit announcements as Five.
+  // Optional: without it the GitHub webhook verifies but skips posting.
+  THING_FIVE_BOT_TOKEN: z.string().optional().default(''),
+  // GitHub org webhook for Thing Five's commit announcements. The secret signs
+  // every delivery (verified before we trust it); the channel id is where Five
+  // posts; the orgs allowlist bounds which org's pushes are announced. All
+  // optional: without the secret the webhook endpoint returns 501.
+  GITHUB_WEBHOOK_SECRET: z.string().optional().default(''),
+  DISCORD_COMMIT_CHANNEL_ID: z.string().optional().default(''),
+  GITHUB_COMMIT_ORGS: z.string().optional().default('anti-ltd,counter-ltd'),
   // WebAuthn (passkey) relying-party config. The RP ID is the registrable
   // domain of the WEB origin the ceremony runs on (e.g. counter.ltd), NOT the
   // API subdomain, and the browser enforces that the page origin matches. The

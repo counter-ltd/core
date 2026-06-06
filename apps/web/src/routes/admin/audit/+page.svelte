@@ -17,7 +17,7 @@
   <p class="faint">No admin actions logged yet.</p>
 {/if}
 
-<ul class="log">
+<ul class="log card">
   {#each data.entries as e (e.id)}
     <li class="line">
       <code class="action">{e.action}</code>
@@ -32,17 +32,27 @@
   .log {
     list-style: none;
     margin: 0;
+    /* The card draws the frame; rows handle their own dividers, so kill the
+       list's own padding and let lines run edge to edge. */
     padding: 0;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
   }
   .line {
     display: grid;
     grid-template-columns: minmax(120px, auto) 1fr auto;
     align-items: baseline;
     gap: var(--space-2) var(--space-3);
-    padding: var(--space-2) 0;
+    padding: var(--space-3) var(--space-4);
     border-bottom: 1px solid var(--color-border);
+    transition: background 0.1s ease;
+  }
+  .line:last-child {
+    border-bottom: none;
+  }
+  .line:hover {
+    background: var(--color-surface-strong);
   }
   .action {
     font-family: var(--mono);

@@ -9,12 +9,11 @@
  * IP hint for anonymous callers) inside a rolling time window. Go over the
  * limit and you get a 429 until the window rolls.
  *
- * Two properties worth calling out. The IP key lives only in isolate memory and
- * is never written anywhere, because Counter does not log IPs. And on Workers
- * this counts per-isolate, so under load the limit is approximate (each isolate
- * counts on its own). If we ever need a strict global cap, swap this for
- * a Durable Object or the Workers Rate Limiting binding; the `X-RateLimit-*`
- * header contract below stays the same either way.
+ * The IP key lives only in isolate memory and is never written anywhere, because
+ * Counter does not log IPs. On Workers this counts per-isolate, so under load
+ * the limit is approximate (each isolate counts on its own). If we ever need a
+ * strict global cap, swap this for a Durable Object or the Workers Rate Limiting
+ * binding; the `X-RateLimit-*` header contract below stays the same either way.
  */
 import { createMiddleware } from 'hono/factory';
 import { RATE_LIMIT } from '@counter/config';

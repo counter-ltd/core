@@ -8,8 +8,8 @@
  * Two kinds of token are in play. The access token is short-lived and gets
  * sent on every request to prove who you are. The refresh token lives much
  * longer and has exactly one job: handing it in gets you a fresh access token
- * once the old one expires. Crucially, each kind is signed with its OWN secret,
- * so if one secret ever leaks an attacker still can't forge the other kind.
+ * once the old one expires. Each kind is signed with its own secret, so if
+ * one secret ever leaks an attacker still can't forge the other kind.
  */
 import { sign, verify } from 'hono/jwt';
 import { loadServerEnv } from '@counter/config/env';
@@ -23,7 +23,9 @@ const cfg = () => loadServerEnv();
 
 // How long each token stays valid, in seconds. These are functions for the
 // same reason as cfg() above: the values come from env, which isn't ready yet.
+/** How long an access token lives, in seconds, sourced from JWT_EXPIRES_IN. */
 export const accessTtlSeconds = () => parseDuration(cfg().JWT_EXPIRES_IN);
+/** How long a refresh token lives, in seconds, sourced from JWT_REFRESH_EXPIRES_IN. */
 export const refreshTtlSeconds = () => parseDuration(cfg().JWT_REFRESH_EXPIRES_IN);
 
 /** The claims baked into an access token. `sub` is the user it belongs to. */

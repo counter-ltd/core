@@ -12,20 +12,29 @@
    */
   import { enhance } from '$app/forms';
   import type { Permission } from '@counter/config';
+  import Select from '$lib/components/Select.svelte';
 
   let { data, form } = $props();
 
   const perms = $derived(data.permissions as Permission[]);
   const canResolve = $derived(perms.includes('reports.resolve'));
   const canModerate = $derived(perms.includes('posts.moderate'));
+
+  let filterForm = $state<HTMLFormElement | null>(null);
 </script>
 
-<form method="GET" class="filters">
-  <select name="status" aria-label="Filter by status" onchange={(e) => e.currentTarget.form?.requestSubmit()}>
-    <option value="open" selected={data.status === 'open'}>open</option>
-    <option value="resolved" selected={data.status === 'resolved'}>resolved</option>
-    <option value="dismissed" selected={data.status === 'dismissed'}>dismissed</option>
-  </select>
+<form method="GET" class="filters" bind:this={filterForm}>
+  <Select
+    name="status"
+    aria-label="Filter by status"
+    value={data.status}
+    options={[
+      {value: 'open', label: 'open'},
+      {value: 'resolved', label: 'resolved'},
+      {value: 'dismissed', label: 'dismissed'},
+    ]}
+    onchange={() => filterForm?.requestSubmit()}
+  />
 </form>
 
 {#if form?.error}<p class="error">{form.error}</p>{/if}
@@ -37,7 +46,7 @@
 
 <ul class="rows">
   {#each data.reports as r (r.id)}
-    <li class="card report">
+    <li class="card report" class:done={r.status !== 'open'}>
       <div class="head">
         <span class="reason">{r.reason}</span>
         <span class="ttype">{r.targetType}</span>
@@ -91,7 +100,13 @@
     gap: var(--space-2);
   }
   .report {
-    padding: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    /* Left rail flags state: amber while the report is open and needs a call,
+       quiet once it's been resolved or dismissed. */
+    border-left: 2px solid var(--color-accent);
+  }
+  .report.done {
+    border-left-color: var(--color-border);
   }
   .head {
     display: flex;
@@ -127,9 +142,5 @@
   }
   .actions form {
     margin: 0;
-  }
-  .btn-danger {
-    color: var(--color-danger);
-    border-color: var(--color-danger);
   }
 </style>

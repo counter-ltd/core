@@ -17,6 +17,7 @@ if (!env.DATABASE_URL) throw new Error('DATABASE_URL must be set to seed.');
 // Dynamic import after the env check so client.ts/schema.ts only load once we
 // know there's a database to talk to.
 const { createDb, runWithDb, db } = await import('./client.ts');
+const { officialThemeRows } = await import('./official-themes.ts');
 const schema = await import('./schema.ts');
 const { users, posts, follows, likes, reposts, tags, postTags, themes, savedThemes, algorithmChangelog, postViews, groups, userGroups } =
   schema;
@@ -54,7 +55,7 @@ await runWithDb(instance, async () => {
   // Emails are encrypted at rest, with a blind index for lookup, exactly as the
   // API writes them. The keys must match apps/api/.dev.vars, or these accounts
   // won't decrypt or resolve at login.
-  const [ada, linus, grace] = await db
+  const [ada, linus, grace, counter] = await db
     .insert(users)
     .values([
       {
@@ -80,13 +81,22 @@ await runWithDb(instance, async () => {
         bio: 'It is easier to ask forgiveness than permission.',
         verified: true,
       },
+      {
+        // The brand account that authors the official theme catalog.
+        username: 'counter',
+        displayName: 'Counter',
+        ...(await emailFields('hello@counter.ltd')),
+        passwordHash,
+        bio: 'The open social platform.',
+        verified: true,
+      },
     ])
     .returning();
 
   // .returning() hands back the inserted rows so we can wire up relationships
   // below with the generated ids. The guards keep TypeScript happy and catch a
   // silently empty insert early.
-  if (!ada || !linus || !grace) throw new Error('Seed users failed');
+  if (!ada || !linus || !grace || !counter) throw new Error('Seed users failed');
 
   const [open, code] = await db
     .insert(tags)
@@ -191,6 +201,10 @@ await runWithDb(instance, async () => {
   if (glassNoir && paperTrail) {
     await db.insert(savedThemes).values([{ userId: ada.id, themeId: paperTrail.id }]);
   }
+
+  // The official catalog Counter ships, authored by the brand account. Shared
+  // with the production-safe seed-official.ts so the two stay in sync.
+  await db.insert(themes).values(officialThemeRows(counter.id));
 
   // First entry in the public transparency log, pinned to the algorithm version
   // shipped in @counter/config so the log and the live weights agree.

@@ -23,6 +23,7 @@ import { serializeIntegration } from '../services/trust.ts';
 import { verifyRelMe } from '../lib/relme.ts';
 import type { AppEnv } from '../types.ts';
 
+/** Hono router for all /integrations routes. Mounted by the main app. */
 export const integrationRoutes = new Hono<AppEnv>();
 
 /** Best-effort display handle from a URL: the last path segment, else the host. */

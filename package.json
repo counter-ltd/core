@@ -14,6 +14,7 @@
     "db:migrate": "bun run --filter '@counter/db' migrate",
     "db:push": "bun run --filter '@counter/db' push",
     "db:seed": "bun run --filter '@counter/db' seed",
+    "db:seed:official": "bun run --filter '@counter/db' seed:official",
     "setup": "bun install && bun run db:migrate && bun run db:seed",
     "typecheck": "bun run --filter '*' typecheck"
   },

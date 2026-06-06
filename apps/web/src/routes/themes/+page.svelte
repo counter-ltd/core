@@ -18,7 +18,20 @@
    * which theme is active, which is why apply/reset never hit the network.
    */
   import { enhance } from '$app/forms';
-  import { applyTheme, previewVars, THEME_COLOR_TOKENS, THEME_STORAGE_KEY } from '$lib/theme';
+  import Checkbox from '$lib/components/Checkbox.svelte';
+  import Select from '$lib/components/Select.svelte';
+  import {
+    applyTheme,
+    previewVars,
+    expandThemeVars,
+    defaultThemeVars,
+    canonicalVarsFrom,
+    THEME_COLOR_TOKENS,
+    THEME_STYLE_CONTROLS,
+    THEME_STORAGE_KEY,
+    type StyleControl,
+    type StyleGroup,
+  } from '$lib/theme';
   import type { Theme, ThemeVariables } from '@counter/types';
   let { data, form } = $props();
 
@@ -71,12 +84,11 @@
 
   // --- Create editor state ---
 
-  // The working colour map for the editor, seeded from each token's dark default
-  // so a fresh theme opens on the current look. The colour inputs bind straight
-  // into this, and previewVars() turns it into the live preview's inline style.
-  let colors = $state<Record<string, string>>(
-    Object.fromEntries(THEME_COLOR_TOKENS.map((t) => [t.key, t.default])),
-  );
+  // The working variable map for the editor: every colour and style knob the
+  // user can set, seeded from the defaults so a fresh theme opens on the current
+  // look. Widgets bind straight into this, and expandThemeVars() turns the
+  // canonical knobs into the full set the preview and the saved theme use.
+  let vars = $state<Record<string, string>>(defaultThemeVars());
   // Name and description are controlled too, so loading a theme into the editor
   // can prefill them.
   let name = $state('');
@@ -85,29 +97,47 @@
   // which form action runs and the editor's heading.
   let editingId = $state<string | null>(null);
 
-  // Reset the editor to a blank, default-coloured theme.
+  // The expanded map (canonical knobs plus derived tokens) for the live preview.
+  const previewStyle = $derived(previewVars(expandThemeVars(vars)));
+
+  // Reset the editor to a blank, default theme.
   function newTheme() {
     editingId = null;
     name = '';
     description = '';
-    colors = Object.fromEntries(THEME_COLOR_TOKENS.map((t) => [t.key, t.default]));
+    vars = defaultThemeVars();
   }
 
-  // Load one of your themes into the editor and switch to Create. Each token's
-  // value comes from the theme when it's a usable hex, else the token default:
-  // an `<input type="color">` can't represent rgba/named values, so those fall
-  // back rather than show as black.
+  // Load one of your themes into the editor and switch to Create. Only the
+  // canonical knobs are read back; the derived tokens get recomputed on save.
   function startEdit(theme: Theme) {
     editingId = theme.id;
     name = theme.name;
     description = theme.description ?? '';
-    colors = Object.fromEntries(
-      THEME_COLOR_TOKENS.map((t) => {
-        const v = theme.variables[t.key];
-        return [t.key, v && /^#[0-9a-f]{6}$/i.test(v) ? v : t.default];
-      }),
-    );
+    vars = canonicalVarsFrom(theme.variables);
+    // A colour input can't show rgba/named values, so swap any non-hex stored
+    // colour for its default rather than render the picker as black.
+    for (const t of THEME_COLOR_TOKENS) {
+      if (!/^#[0-9a-f]{6}$/i.test(vars[t.key] ?? '')) vars[t.key] = t.default;
+    }
     tab = 'create';
+  }
+
+  // --- Style control widgets ---
+
+  const STYLE_GROUPS: { id: StyleGroup; label: string }[] = [
+    { id: 'type', label: 'Type' },
+    { id: 'shape', label: 'Shape' },
+    { id: 'surface', label: 'Surface' },
+  ];
+
+  // A range stores its value as a CSS string ("12px"); the slider works in the
+  // raw number, so parse on read and re-attach the unit on write.
+  function rangeValue(c: Extract<StyleControl, { kind: 'range' }>): number {
+    return parseFloat(vars[c.key] ?? c.default) || 0;
+  }
+  function setRange(c: Extract<StyleControl, { kind: 'range' }>, n: number) {
+    vars[c.key] = c.unit ? `${n}${c.unit}` : `${n}`;
   }
 </script>
 
@@ -149,17 +179,20 @@
               {#each swatches(theme.variables) as c, i (i)}<span class="sw" style="background:{c}"></span>{/each}
             </div>
             <strong>{theme.name}</strong>
-            {#if !theme.published}<span class="pill draft">Draft</span>{/if}
+            {#if theme.official}<span class="pill official">Official</span>{:else if !theme.published}<span class="pill draft">Draft</span>{/if}
             {#if theme.description}<p class="desc muted">{theme.description}</p>{/if}
             <div class="cardbtns">
               <button class="btn btn-primary apply" onclick={() => use(theme)}>
                 {active === theme.id ? 'Applied' : 'Apply'}
               </button>
-              <button class="btn" onclick={() => startEdit(theme)}>Edit</button>
-              <form method="POST" action="?/delete" use:enhance>
-                <input type="hidden" name="id" value={theme.id} />
-                <button class="btn btn-ghost" type="submit">Delete</button>
-              </form>
+              <!-- Official themes are catalog-managed: no edit/delete, even for the owner. -->
+              {#if !theme.official}
+                <button class="btn" onclick={() => startEdit(theme)}>Edit</button>
+                <form method="POST" action="?/delete" use:enhance>
+                  <input type="hidden" name="id" value={theme.id} />
+                  <button class="btn btn-ghost" type="submit">Delete</button>
+                </form>
+              {/if}
             </div>
           </div>
         {:else}
@@ -204,8 +237,9 @@
           {#each swatches(theme.variables) as c, i (i)}<span class="sw" style="background:{c}"></span>{/each}
         </div>
         <strong>{theme.name}</strong>
+        {#if theme.official}<span class="pill official">Official</span>{/if}
         {#if theme.description}<p class="desc muted">{theme.description}</p>{/if}
-        {#if theme.author}<p class="by faint">by <a href="/{theme.author.username}">@{theme.author.username}</a></p>{/if}
+        {#if theme.author && !theme.official}<p class="by faint">by <a href="/{theme.author.username}">@{theme.author.username}</a></p>{/if}
         <div class="cardbtns">
           <button class="btn btn-primary apply" onclick={() => use(theme)}>
             {active === theme.id ? 'Applied' : 'Apply'}
@@ -232,8 +266,8 @@
        theme posts to ?/create. -->
   <form method="POST" action={editingId ? '?/update' : '?/create'} use:enhance class="creator">
     {#if editingId}<input type="hidden" name="id" value={editingId} />{/if}
-    <!-- Left: the controls. Colour inputs bind into `colors`, so the preview on
-         the right reacts the instant a value changes. -->
+    <!-- Left: the controls. Every widget mutates `vars`; the hidden inputs below
+         serialize it for the POST, and the preview reacts the instant it changes. -->
     <div class="controls">
       {#if editingId}
         <div class="spread editing-bar">
@@ -241,6 +275,7 @@
           <button type="button" class="linkish" onclick={newTheme}>Start new instead</button>
         </div>
       {/if}
+
       <div class="meta">
         <div>
           <label for="name">Name</label>
@@ -252,14 +287,50 @@
         </div>
       </div>
 
+      <span class="grouplabel">Colours</span>
       <div class="swatch-grid">
         {#each THEME_COLOR_TOKENS as token (token.key)}
           <label class="cl">
             <span>{token.label}</span>
-            <input type="color" name={token.key} bind:value={colors[token.key]} />
+            <input type="color" bind:value={vars[token.key]} />
           </label>
         {/each}
       </div>
+
+      <!-- Typography, geometry, and surface knobs, grouped. -->
+      {#each STYLE_GROUPS as g (g.id)}
+        <span class="grouplabel">{g.label}</span>
+        <div class="style-grid">
+          {#each THEME_STYLE_CONTROLS.filter((c) => c.group === g.id) as c (c.key)}
+            <div class="ctl">
+              <span class="ctl-label">{c.label}</span>
+              {#if c.kind === 'select'}
+                <Select bind:value={vars[c.key]} options={c.options} />
+              {:else if c.kind === 'range'}
+                <input
+                  type="range"
+                  min={c.min}
+                  max={c.max}
+                  step={c.step}
+                  value={rangeValue(c)}
+                  oninput={(e) => setRange(c, +e.currentTarget.value)}
+                />
+                <span class="ctl-val">{vars[c.key]}</span>
+              {:else}
+                <Checkbox
+                  checked={vars[c.key] !== c.off}
+                  onchange={(e) => (vars[c.key] = (e.currentTarget as HTMLInputElement).checked ? c.on : c.off)}
+                />
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/each}
+
+      <!-- Serialize the whole working map; the server re-expands it. -->
+      {#each Object.entries(vars) as [k, v] (k)}
+        <input type="hidden" name={k} value={v} />
+      {/each}
 
       <div class="submit-row">
         <!-- The clicked button carries `published`, so the same form makes a
@@ -269,12 +340,12 @@
       </div>
     </div>
 
-    <!-- Right: a self-contained example. The wrapper sets the working palette as
-         CSS variables, so everything inside recolours live without touching the
-         real page theme or the editor chrome. -->
-    <div class="preview" style={previewVars(colors)}>
+    <!-- Right: a self-contained example. The wrapper sets the full expanded token
+         map, so everything inside (colours, font, corners, glass) recolours live
+         without touching the real page theme or the editor chrome. -->
+    <div class="preview" style={previewStyle}>
       <p class="preview-label">Live preview</p>
-      <div class="pv-post">
+      <div class="panel pv-post">
         <div class="pv-head">
           <div class="pv-avatar"></div>
           <div>
@@ -282,7 +353,7 @@
             <div class="pv-time">2h</div>
           </div>
         </div>
-        <p class="pv-body">A theme is just CSS variables. Drag a colour and watch this post follow along. <span class="pv-link">#counter</span></p>
+        <p class="pv-body">A theme is more than colour now: font, corners, and glass too. Tweak and watch. <span class="pv-link">#counter</span></p>
         <div class="pv-actions">
           <span>reply 12</span>
           <span class="pv-repost">repost 4</span>
@@ -337,6 +408,7 @@
   .by { margin: 0; font-size: 0.8rem; }
   .draft { align-self: flex-start; }
   .saved { align-self: center; }
+  .official { align-self: flex-start; color: var(--color-accent); border-color: var(--color-accent); }
   .cardbtns { display: flex; align-items: center; gap: var(--space-2); margin-top: auto; padding-top: var(--space-2); }
   .apply { flex: 1; }
 
@@ -353,8 +425,18 @@
   .cl { display: flex; flex-direction: column; gap: 4px; font-size: 0.72rem; }
   .cl span { color: var(--color-text-dim); }
   .cl input[type='color'] { width: 100%; height: 34px; padding: 2px; cursor: pointer; }
-  .submit-row { display: flex; gap: var(--space-3); }
+  .submit-row { display: flex; gap: var(--space-3); flex-wrap: wrap; }
   .editing-bar { font-size: 0.8rem; }
+
+  .grouplabel { font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-faint); }
+
+  .style-grid { display: flex; flex-direction: column; gap: var(--space-3); }
+  .ctl { display: grid; grid-template-columns: 110px 1fr auto; align-items: center; gap: var(--space-3); }
+  .ctl-label { font-size: 0.78rem; color: var(--color-text-dim); }
+  .ctl-val { font-family: var(--mono); font-size: 0.72rem; color: var(--color-text-faint); min-width: 48px; text-align: right; }
+  .ctl input[type='range'] { width: 100%; }
+  .ctl :global(.checkbox) { justify-self: start; }
+  .ctl :global(.select) { width: 100%; }
 
   /* The preview is sticky so it stays in view while scrolling the colour grid. */
   .preview {
@@ -368,10 +450,17 @@
     flex-direction: column;
     gap: var(--space-3);
     color: var(--color-text);
+    /* Declare the themeable font/spacing here so the scoped --font override
+       reaches the example. font-family inherits as a resolved value, so a
+       child won't re-evaluate var(--font) unless an ancestor restates it. */
+    font-family: var(--font);
+    letter-spacing: var(--letter-spacing);
   }
   .preview-label { font-family: var(--mono); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-faint); margin: 0; }
 
-  .pv-post { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: var(--space-3); }
+  /* No surface props here: the .panel class on the same element owns the fill,
+     border, radius, blur, and shadow so the glass tokens drive the preview. */
+  .pv-post { padding: var(--space-3); }
   .pv-head { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }
   .pv-avatar { width: 34px; height: 34px; border-radius: var(--radius-pill); background: var(--color-surface-strong); border: 1px solid var(--color-border-bright); flex: none; }
   .pv-name { font-size: 0.88rem; font-weight: 600; color: var(--color-text); }

@@ -231,6 +231,119 @@ extension CounterPalette {
     }
 }
 
+// MARK: - Style (non-color theme facets)
+
+/// The non-colour side of a theme: typography, geometry, and surface treatment.
+///
+/// Resolved from the same `--*` variable bag as the palette and injected
+/// alongside it, so `ViewModifier`s and `ButtonStyle`s can read both. The
+/// canonical keys (`--font-design`, `--radius`, `--surface-blur/-opacity/-shadow`)
+/// are the ones the web editor and iOS editor both write, which is what lets a
+/// theme authored on either platform render the same way here.
+struct CounterStyle: Equatable, Sendable {
+    var fontDesign: Font.Design
+    var radiusSmall: CGFloat
+    var radiusMedium: CGFloat
+    var radiusLarge: CGFloat
+    /// Frosted translucent surfaces vs a solid fill.
+    var glass: Bool
+    /// A soft drop shadow under panels.
+    var shadow: Bool
+
+    /// The shipped look: system font, the static radius scale, glass panels (iOS
+    /// has always rendered cards on `.ultraThinMaterial`), no shadow. Used when
+    /// no theme is applied, and as the environment default.
+    static let standard = CounterStyle(
+        fontDesign: .default,
+        radiusSmall: CounterRadius.sm,
+        radiusMedium: CounterRadius.md,
+        radiusLarge: CounterRadius.lg,
+        glass: true,
+        shadow: false
+    )
+
+    /// Map the semantic `--font-design` token onto a SwiftUI font design.
+    static func design(from raw: String?) -> Font.Design {
+        switch raw {
+        case "mono": return .monospaced
+        case "serif": return .serif
+        case "rounded": return .rounded
+        default: return .default
+        }
+    }
+
+    /// Resolve a style from a theme's variables.
+    ///
+    /// Surface tokens decide flat vs glass: if either `--surface-blur` or
+    /// `--surface-opacity` is present we honour it (blur > 0 or opacity < 1 means
+    /// glass), but a theme that carries neither (an old colours-only theme) keeps
+    /// the glass default rather than flattening unexpectedly.
+    static func resolve(variables: [String: String]) -> CounterStyle {
+        func num(_ key: String) -> Double? {
+            guard let raw = variables[key] else { return nil }
+            let cleaned = raw.replacingOccurrences(of: "px", with: "").trimmingCharacters(in: .whitespaces)
+            return Double(cleaned)
+        }
+
+        let radius = num("--radius").map { CGFloat($0) } ?? CounterRadius.md
+        let blur = num("--surface-blur")
+        let opacity = num("--surface-opacity")
+        let hasSurfaceTokens = blur != nil || opacity != nil
+        let glass = hasSurfaceTokens ? ((blur ?? 0) > 0 || (opacity ?? 1) < 1) : true
+        let shadowRaw = variables["--surface-shadow"]?.trimmingCharacters(in: .whitespaces)
+        let shadow = shadowRaw != nil && shadowRaw != "none" && shadowRaw != ""
+
+        return CounterStyle(
+            fontDesign: design(from: variables["--font-design"]),
+            // Keep the scale in proportion, mirroring the web's derivation.
+            radiusSmall: max(0, (radius * 0.6).rounded()),
+            radiusMedium: radius,
+            radiusLarge: (radius * 1.6).rounded(),
+            glass: glass,
+            shadow: shadow
+        )
+    }
+}
+
+// MARK: - Theme authoring (presets + expansion)
+
+/// CSS font stacks mirroring the web's `FONT_STACKS`, so a theme authored on iOS
+/// renders the same face when opened on the web.
+enum ThemeFontStacks {
+    static let sans = "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, Helvetica, sans-serif"
+    static let mono = "'Berkeley Mono', ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace"
+    static let serif = "ui-serif, Georgia, Cambria, \"Times New Roman\", serif"
+    static let rounded = "\"SF Pro Rounded\", ui-rounded, \"Hiragino Maru Gothic ProN\", system-ui, sans-serif"
+}
+
+/// Derive the dependent tokens (`--font`, `--font-heading`, the radius scale)
+/// from the canonical knobs, mirroring the web's `expandThemeVars`.
+///
+/// iOS posts straight to the API with no server-side expansion, so themes
+/// authored here must carry the resolved tokens or the web would render them
+/// with the wrong font and corners. iOS itself reads the canonical keys.
+func expandThemeVariables(_ vars: [String: String]) -> [String: String] {
+    var out = vars
+
+    let design = vars["--font-design"] ?? "default"
+    let stack: String
+    switch design {
+    case "mono": stack = ThemeFontStacks.mono
+    case "serif": stack = ThemeFontStacks.serif
+    case "rounded": stack = ThemeFontStacks.rounded
+    default: stack = ThemeFontStacks.sans
+    }
+    out["--font"] = design == "default" ? ThemeFontStacks.sans : stack
+    out["--font-heading"] = design == "default" ? ThemeFontStacks.mono : stack
+
+    let r = Double((vars["--radius"] ?? "3").replacingOccurrences(of: "px", with: "")) ?? 3
+    out["--radius-sm"] = "\(Int((r * 0.6).rounded()))px"
+    out["--radius-lg"] = "\(Int((r * 1.6).rounded()))px"
+    out["--radius-pill"] = "999px"
+
+    return out
+}
+
 // MARK: - Environment
 
 private struct CounterThemeKey: EnvironmentKey {
@@ -239,10 +352,21 @@ private struct CounterThemeKey: EnvironmentKey {
     static let defaultValue = CounterPalette.dark
 }
 
+private struct CounterStyleKey: EnvironmentKey {
+    static let defaultValue = CounterStyle.standard
+}
+
 extension EnvironmentValues {
     /// The active resolved palette. Injected at the app root from `ThemeStore`.
     var counterTheme: CounterPalette {
         get { self[CounterThemeKey.self] }
         set { self[CounterThemeKey.self] = newValue }
+    }
+
+    /// The active resolved style (type, geometry, surface). Injected alongside
+    /// `counterTheme` at the app root.
+    var counterStyle: CounterStyle {
+        get { self[CounterStyleKey.self] }
+        set { self[CounterStyleKey.self] = newValue }
     }
 }

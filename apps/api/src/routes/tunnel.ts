@@ -47,6 +47,7 @@ import { findUserByUsername } from '../services/userquery.ts';
 import { createNotification } from '../services/content.ts';
 import type { AppEnv } from '../types.ts';
 
+/** Hono router mounted at /tunnel by the main app. */
 export const tunnelRoutes = new Hono<AppEnv>();
 
 tunnelRoutes.use('*', requireAuth);
@@ -58,8 +59,8 @@ tunnelRoutes.use('*', requireAuth);
  * `PublicUser` objects for both participants.
  *
  * @param row - Raw tunnel_sessions row from the database.
- * @param transcriptRows - Optional tunnel_messages to embed (empty by default).
  * @param viewerId - The requesting user, for serializing presence visibility.
+ * @param transcriptRows - Optional tunnel_messages to embed (empty by default).
  */
 async function serializeSession(
   row: typeof tunnelSessions.$inferSelect,

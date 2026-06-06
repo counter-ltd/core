@@ -11,10 +11,10 @@
  * null on any failure so the caller treats a bad preview as a quiet no-op.
  */
 
-// 64 KB is enough to capture any page's <head> section.
 const MAX_BYTES = 64 * 1024;
 const FETCH_TIMEOUT_MS = 5000;
 
+/** OG/meta data extracted from a linked page. Fields are null when absent in the source HTML. */
 export interface LinkPreviewData {
   url: string;
   title: string | null;

@@ -32,6 +32,7 @@ import { errors } from '../lib/errors.ts';
 import { requireAuth, requireUserId } from '../middleware/auth.ts';
 import type { AppEnv } from '../types.ts';
 
+/** Hono router that mounts the /insights sub-routes on the main app. */
 export const insightRoutes = new Hono<AppEnv>();
 
 /**
@@ -46,13 +47,11 @@ async function scalarCount(qb: Promise<Array<{ value: number }>>): Promise<numbe
   return Number(rows[0]?.value ?? 0);
 }
 
-/**
- * Per-post insights, public from the moment a post exists. There's no follower
- * gate here, by design: every author sees the same numbers on day one. The data
- * is anonymous aggregate view counts plus already-public engagement, so nothing
- * here exposes who did what.
- */
 insightRoutes.get('/posts/:id', async (c) => {
+  // Public from the moment a post exists, no follower gate by design: every
+  // author sees the same numbers on day one. The data is anonymous aggregate
+  // view counts plus already-public engagement, so nothing here exposes who
+  // did what.
   const id = c.req.param('id');
   const post = await db.query.posts.findFirst({ where: eq(posts.id, id) });
   // Treat a soft-deleted post as gone so we don't serve stats for it.
@@ -113,12 +112,10 @@ insightRoutes.get('/posts/:id', async (c) => {
   return c.json(result);
 });
 
-/**
- * The one private analytics view: the signed-in user's own profile totals.
- * requireAuth pins it to whoever is logged in, and every query below filters by
- * that same userId, so there's no way to ask for someone else's numbers.
- */
 insightRoutes.get('/profile', requireAuth, async (c) => {
+  // The one private analytics view: the signed-in user's own profile totals.
+  // requireAuth pins it to whoever is logged in, and every query below filters
+  // by that same userId, so there's no way to ask for someone else's numbers.
   const userId = requireUserId(c);
 
   // A subquery of the caller's post ids, reused below to scope view/like/repost
@@ -180,11 +177,9 @@ insightRoutes.get('/profile', requireAuth, async (c) => {
   return c.json(result);
 });
 
-/**
- * Platform-wide totals for a public "by the numbers" panel. No auth, because
- * these are headline counts (users, posts, views, and so on) that name nobody.
- */
 insightRoutes.get('/public', async (c) => {
+  // No auth: these are headline counts (users, posts, views, and so on) that
+  // name nobody, so there's nothing to gate.
   const [userCount, postCount, viewCount, likeCount, repostCount] = await Promise.all([
     scalarCount(db.select({ value: count() }).from(users)),
     scalarCount(

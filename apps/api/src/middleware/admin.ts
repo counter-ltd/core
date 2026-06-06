@@ -3,13 +3,11 @@
 // Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
 
 /**
- * The gate for admin routes: turn a required permission into a 401/403 check.
+ * Middleware factory for admin route access control.
  *
- * `requirePermission(perm)` resolves the caller's effective permissions (the
- * union across their groups) the first time it runs and stashes them on the
- * context, so chaining several checks on one request only hits the database
- * once. It assumes `optionalAuth` ran earlier to set `userId`; an anonymous
- * caller gets a 401, a signed-in caller without the permission gets a 403.
+ * Wraps permission checks behind a Hono middleware so routes can declare what
+ * they need without duplicating auth logic. Relies on `optionalAuth` running
+ * earlier in the chain to populate `userId` on the context.
  */
 import { createMiddleware } from 'hono/factory';
 import { errors } from '../lib/errors.ts';
@@ -18,10 +16,14 @@ import type { Permission } from '@counter/config';
 import type { AppEnv } from '../types.ts';
 
 /**
- * Build a middleware that requires `perm` on the caller.
+ * Build a middleware that requires `perm` on the calling user.
  *
- * @param perm  The capability the route needs. Throws 401 when no user is
- *              attached, 403 when the user is real but lacks the permission.
+ * Resolves the caller's effective permissions (the union across all their
+ * groups) and caches them on the context, so a route guarded by two
+ * permissions only hits the database once. Anonymous callers get a 401;
+ * authenticated callers without the permission get a 403.
+ *
+ * @param perm  The capability the route needs.
  */
 export function requirePermission(perm: Permission) {
   return createMiddleware<AppEnv>(async (c, next) => {

@@ -22,7 +22,7 @@ const SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 /** Service-account fields the JWT flow needs. */
 export interface GoogleServiceAccount {
   clientEmail: string;
-  // PEM PKCS#8. May arrive with literal "\n" sequences from a JSON-sourced env var.
+  /** PEM PKCS#8. May arrive with literal "\n" sequences from a JSON-sourced env var. */
   privateKey: string;
 }
 

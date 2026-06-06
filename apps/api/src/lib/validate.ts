@@ -17,10 +17,9 @@ import { errors } from './errors.ts';
 /**
  * Read and validate the JSON request body against a schema.
  *
- * Malformed JSON and schema violations are two different failures: a body that
- * doesn't parse as JSON at all gets its own clear message here, while a parsed
- * body that breaks the schema throws a ZodError that the central handler
- * formats. Either way the caller receives data already typed as `z.infer<T>`.
+ * A body that doesn't parse as JSON at all gets its own clear message rather
+ * than a cryptic ZodError, so the separation here is intentional. Schema
+ * violations fall through to the central error handler as ZodErrors.
  */
 export async function body<T extends z.ZodTypeAny>(c: Context, schema: T): Promise<z.infer<T>> {
   let raw: unknown;

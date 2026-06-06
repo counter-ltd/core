@@ -48,6 +48,7 @@ export interface BotReplyEnv {
   GOOGLE_SA_PRIVATE_KEY: string;
   THING_ONE_SYSTEM_PROMPT: string;
   THING_ONE_SYSTEM_PROMPT_2: string;
+  THING_ONE_SYSTEM_PROMPT_3?: string;
 }
 
 /** The post that did the mentioning, trimmed to what the reply path needs. */
@@ -67,7 +68,14 @@ export interface MentioningPost {
  * @param env   Prompt secrets.
  */
 function promptForBot(kind: string, env: BotReplyEnv): string {
-  if (kind === 'thing_one') return env.THING_ONE_SYSTEM_PROMPT + env.THING_ONE_SYSTEM_PROMPT_2;
+  if (kind === 'thing_one') {
+    // Coalesce each part: the third is only set for longer prompts.
+    return (
+      (env.THING_ONE_SYSTEM_PROMPT ?? '') +
+      (env.THING_ONE_SYSTEM_PROMPT_2 ?? '') +
+      (env.THING_ONE_SYSTEM_PROMPT_3 ?? '')
+    );
+  }
   return '';
 }
 

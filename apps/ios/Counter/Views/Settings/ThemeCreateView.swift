@@ -1,16 +1,17 @@
 /**
  The live theme editor.
 
- A colour picker for each editable token (`themeColorTokens`) over an example
- post that recolours in real time as you drag. The preview is themed by a
- `CounterPalette` built straight from the editor's working colours and passed
- down explicitly, so only the example recolours, the surrounding editor chrome
- stays on the real app theme.
+ A colour picker for each token (`themeColorTokens`) plus typography, geometry,
+ and surface controls, over an example post that updates in real time. The
+ preview is themed by a `CounterPalette` built from the editor's working colours
+ and the style knobs, passed down explicitly, so only the example changes, not
+ the surrounding editor chrome.
 
- Committing maps the chosen `Color`s back to `#rrggbb` strings (`Color.hexString`)
- and posts them. "Save to library" makes a private draft (`published: false`);
- "Publish" makes it public. On success the parent screen flips to the Library
- tab via `onCommit`.
+ Presets seed the whole set; the user tweaks from there. On submit the colours
+ serialize to `#rrggbb` and the style knobs to their `--*` tokens, then
+ `expandThemeVariables` derives the font stacks and radius scale so the theme
+ renders the same on the web. "Save to library" makes a draft; "Publish" makes it
+ public. On success the parent flips to the Library tab via `onCommit`.
  */
 
 import SwiftUI
@@ -36,7 +37,19 @@ struct ThemeCreateView: View {
     @State private var description: String
     /// Working colours keyed by CSS variable.
     @State private var colors: [String: Color]
+    // Style knobs.
+    @State private var fontDesign: String
+    @State private var roundness: Double
+    @State private var glass: Bool
+    @State private var shadow: Bool
     @State private var isSubmitting = false
+
+    private let fontOptions: [(value: String, label: String)] = [
+        ("default", "System"),
+        ("mono", "Monospace"),
+        ("serif", "Serif"),
+        ("rounded", "Rounded"),
+    ]
 
     init(editing: Theme? = nil, onStartNew: (() -> Void)? = nil, onCommit: @escaping () -> Void) {
         self.editing = editing
@@ -44,34 +57,44 @@ struct ThemeCreateView: View {
         self.onCommit = onCommit
         _name = State(initialValue: editing?.name ?? "")
         _description = State(initialValue: editing?.description ?? "")
-        // Seed each token from the theme being edited when present, else from the
-        // token's default. A theme value that can't be parsed (an unexpected
-        // format) falls back to the default rather than a blank picker.
+        let v = editing?.variables
+        // Seed each colour from the theme being edited, else from the token's
+        // default. An unparseable value falls back rather than showing black.
         let seed = themeColorTokens.reduce(into: [String: Color]()) { acc, token in
-            let raw = editing?.variables[token.key]
-            acc[token.key] = raw.flatMap { Color(cssString: $0) } ?? (Color(cssString: token.defaultHex) ?? .black)
+            acc[token.key] = v?[token.key].flatMap { Color(cssString: $0) }
+                ?? (Color(cssString: token.defaultHex) ?? .black)
         }
         _colors = State(initialValue: seed)
+        _fontDesign = State(initialValue: v?["--font-design"] ?? "default")
+        _roundness = State(initialValue: Double((v?["--radius"] ?? "3").replacingOccurrences(of: "px", with: "")) ?? 3)
+        // A fresh theme opens flat (matching the Default preset and the web);
+        // editing reads the theme's own surface treatment.
+        let style = v.map { CounterStyle.resolve(variables: $0) }
+        _glass = State(initialValue: style?.glass ?? false)
+        _shadow = State(initialValue: style?.shadow ?? false)
     }
 
     var body: some View {
         List {
             Section {
-                ThemePreviewCard(palette: previewPalette)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(theme.bg)
+                ThemePreviewCard(
+                    palette: previewPalette,
+                    radius: CGFloat(roundness),
+                    glass: glass,
+                    fontDesign: CounterStyle.design(from: fontDesign)
+                )
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(theme.bg)
             } header: {
                 Text("Live preview")
             }
 
             if editing != nil, let onStartNew {
-                Section {
+                Section("Editing") {
                     Button("Start a new theme instead") { onStartNew() }
                         .font(CounterFont.body(14))
                         .foregroundStyle(theme.accent)
                         .listRowBackground(theme.surface)
-                } header: {
-                    Text("Editing")
                 }
             }
 
@@ -79,6 +102,35 @@ struct ThemeCreateView: View {
                 TextField("Name", text: $name)
                     .listRowBackground(theme.surface)
                 TextField("Description (optional)", text: $description)
+                    .listRowBackground(theme.surface)
+            }
+
+            Section("Type") {
+                Picker("Font", selection: $fontDesign) {
+                    ForEach(fontOptions, id: \.value) { Text($0.label).tag($0.value) }
+                }
+                .foregroundStyle(theme.text)
+                .listRowBackground(theme.surface)
+            }
+
+            Section("Shape") {
+                VStack(alignment: .leading) {
+                    HStack {
+                        Text("Corner roundness").font(CounterFont.body(14)).foregroundStyle(theme.text)
+                        Spacer()
+                        Text("\(Int(roundness))px").font(CounterFont.mono(12)).foregroundStyle(theme.textDim)
+                    }
+                    Slider(value: $roundness, in: 0...24, step: 1)
+                }
+                .listRowBackground(theme.surface)
+            }
+
+            Section("Surface") {
+                Toggle("Glass", isOn: $glass)
+                    .foregroundStyle(theme.text)
+                    .listRowBackground(theme.surface)
+                Toggle("Drop shadow", isOn: $shadow)
+                    .foregroundStyle(theme.text)
                     .listRowBackground(theme.surface)
             }
 
@@ -115,17 +167,12 @@ struct ThemeCreateView: View {
         !name.trimmingCharacters(in: .whitespaces).isEmpty && !isSubmitting
     }
 
-    /// Binding that reads/writes one token's colour. Returns black for a missing
-    /// key, which can't happen since the map is seeded with every token.
+    /// Binding that reads/writes one token's colour.
     private func binding(for key: String) -> Binding<Color> {
-        Binding(
-            get: { colors[key] ?? .black },
-            set: { colors[key] = $0 }
-        )
+        Binding(get: { colors[key] ?? .black }, set: { colors[key] = $0 })
     }
 
-    /// The preview palette, built directly from the working colours. No CSS
-    /// round-trip: the editor already holds real `Color`s, so resolve straight.
+    /// The preview palette, built directly from the working colours.
     private var previewPalette: CounterPalette {
         func c(_ key: String, _ fallback: Color) -> Color { colors[key] ?? fallback }
         let base = CounterPalette.dark
@@ -152,27 +199,39 @@ struct ThemeCreateView: View {
         guard canSubmit else { return }
         isSubmitting = true
 
-        // Serialize each working colour to a hex string for the variables map.
-        let variables = Dictionary(uniqueKeysWithValues: colors.map { ($0.key, $0.value.hexString) })
+        // Start from the edited theme so tokens the editor doesn't manage (e.g.
+        // density) survive, then overwrite colours and the style knobs.
+        var variables = editing?.variables ?? [:]
+        for token in themeColorTokens {
+            variables[token.key] = colors[token.key]?.hexString ?? token.defaultHex
+        }
+        variables["--font-design"] = fontDesign
+        variables["--radius"] = "\(Int(roundness))px"
+        variables["--surface-blur"] = glass ? "14px" : "0px"
+        variables["--surface-opacity"] = glass ? "0.6" : "1"
+        variables["--surface-shadow"] = shadow ? "0 8px 30px rgba(0,0,0,0.45)" : "none"
+        variables["--letter-spacing"] = fontDesign == "mono" ? "0.01em" : (variables["--letter-spacing"] ?? "0em")
+        // Derive --font / --font-heading / radius scale so the web renders it right.
+        let expanded = expandThemeVariables(variables)
+
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let trimmedDesc = description.trimmingCharacters(in: .whitespaces)
 
         Task {
             let ok: Bool
             if let editing {
-                // Edit sends description as a plain string ("" clears it).
                 ok = await env.updateTheme(
                     id: editing.id,
                     name: trimmedName,
                     description: trimmedDesc,
-                    variables: variables,
+                    variables: expanded,
                     published: published
                 )
             } else {
                 ok = await env.createTheme(
                     name: trimmedName,
                     description: trimmedDesc.isEmpty ? nil : trimmedDesc,
-                    variables: variables,
+                    variables: expanded,
                     published: published
                 )
             }
@@ -184,14 +243,18 @@ struct ThemeCreateView: View {
 
 // MARK: - Preview card
 
-/// A self-contained example post plus UI chrome, coloured by an explicit
-/// palette so it can show a work-in-progress theme without affecting the
+/// A self-contained example post plus UI chrome, coloured and shaped by an
+/// explicit theme so it shows a work-in-progress theme without affecting the
 /// surrounding screen.
 private struct ThemePreviewCard: View {
     let palette: CounterPalette
+    let radius: CGFloat
+    let glass: Bool
+    let fontDesign: Font.Design
 
     var body: some View {
         let p = palette
+        let rSmall = max(0, (radius * 0.6).rounded())
 
         VStack(alignment: .leading, spacing: CounterSpacing.md) {
             // Example post.
@@ -210,7 +273,7 @@ private struct ThemePreviewCard: View {
                     }
                     Spacer()
                 }
-                Text("A theme is just colours. Drag below and watch this post follow along.")
+                Text("A theme is type, corners, and glass now. Tweak and watch.")
                     .font(CounterFont.body(14))
                     .foregroundStyle(p.text)
                 HStack(spacing: CounterSpacing.lg) {
@@ -222,9 +285,11 @@ private struct ThemePreviewCard: View {
                 .font(CounterFont.mono(11))
             }
             .padding(CounterSpacing.md)
-            .background(p.surface)
-            .clipShape(RoundedRectangle(cornerRadius: CounterRadius.md))
-            .overlay(RoundedRectangle(cornerRadius: CounterRadius.md).strokeBorder(p.border, lineWidth: 1))
+            // Glass fades the fill so the theme's translucency reads in the
+            // preview; flat uses the solid surface colour.
+            .background(glass ? p.surface.opacity(0.6) : p.surface)
+            .clipShape(RoundedRectangle(cornerRadius: radius))
+            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(p.border, lineWidth: 1))
 
             // Buttons + pill.
             HStack(spacing: CounterSpacing.sm) {
@@ -234,26 +299,27 @@ private struct ThemePreviewCard: View {
                     .padding(.vertical, CounterSpacing.sm)
                     .background(p.accent)
                     .foregroundStyle(p.accentContrast)
-                    .clipShape(RoundedRectangle(cornerRadius: CounterRadius.sm))
+                    .clipShape(RoundedRectangle(cornerRadius: rSmall))
                 Text("Secondary")
                     .font(CounterFont.mono(13))
                     .padding(.horizontal, CounterSpacing.md)
                     .padding(.vertical, CounterSpacing.sm)
                     .foregroundStyle(p.text)
-                    .overlay(RoundedRectangle(cornerRadius: CounterRadius.sm).strokeBorder(p.borderBright, lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: rSmall).strokeBorder(p.borderBright, lineWidth: 1))
                 Text("TOPIC")
                     .font(CounterFont.mono(10))
                     .padding(.horizontal, CounterSpacing.sm)
                     .padding(.vertical, 4)
                     .background(p.surfaceStrong)
                     .foregroundStyle(p.textDim)
-                    .clipShape(RoundedRectangle(cornerRadius: CounterRadius.sm))
-                    .overlay(RoundedRectangle(cornerRadius: CounterRadius.sm).strokeBorder(p.border, lineWidth: 0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: rSmall))
                 Spacer()
             }
         }
         .padding(CounterSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(p.bg)
+        // Mirror the app-root approach: one modifier themes the example's type.
+        .fontDesign(fontDesign)
     }
 }

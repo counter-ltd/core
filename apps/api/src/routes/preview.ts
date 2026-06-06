@@ -13,14 +13,9 @@ import { requireAuth } from '../middleware/auth.ts';
 import { fetchLinkPreview } from '../lib/link-preview.ts';
 import type { AppEnv } from '../types.ts';
 
+/** Hono router mounted at `/preview` by the main app. */
 export const previewRoutes = new Hono<AppEnv>();
 
-/**
- * Fetch OG/meta preview data for a URL.
- *
- * @param url  The URL to preview (query param, URL-encoded).
- * @returns    `{ url, title, description, image, siteName }` or 404 when no data.
- */
 previewRoutes.get('/', requireAuth, async (c) => {
   const rawUrl = c.req.query('url');
   if (!rawUrl) {
@@ -30,7 +25,7 @@ previewRoutes.get('/', requireAuth, async (c) => {
   let url: string;
   try {
     url = decodeURIComponent(rawUrl);
-    // Validate that it parses as a URL before passing to the fetcher.
+    // fetchLinkPreview trusts its input, so reject unparseable values here.
     new URL(url);
   } catch {
     return c.json({ error: { code: 'bad_request', message: 'Invalid URL' } }, 400);

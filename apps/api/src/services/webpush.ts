@@ -45,7 +45,6 @@ function b64urlDecode(s: string): Uint8Array {
   return out;
 }
 
-/** Concatenate byte arrays into one buffer. */
 function concat(...parts: Uint8Array[]): Uint8Array {
   const total = parts.reduce((n, p) => n + p.length, 0);
   const out = new Uint8Array(total);
@@ -234,9 +233,10 @@ function targetUrl(type: NotificationType): string {
 /**
  * Send a web push to every browser a user has subscribed.
  *
- * Awaited for the same reason as deliverPush: the request's DB connection is
- * gone once the response is sent, and we need it to read subscriptions and prune
- * dead ones. The encryption and HTTP calls run in parallel across subscriptions.
+ * Must be awaited before the response is sent: the request's DB connection is
+ * torn down once the response completes, and we need it to read subscriptions
+ * and prune dead ones. The encryption and HTTP calls run in parallel across
+ * subscriptions.
  */
 export async function deliverWebPush(userId: string, payload: PushPayload): Promise<void> {
   const env = loadServerEnv();

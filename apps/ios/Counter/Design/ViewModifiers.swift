@@ -20,17 +20,45 @@ import SwiftUI
 
 private struct CounterPanelModifier: ViewModifier {
     @Environment(\.counterTheme) private var theme
+    @Environment(\.counterStyle) private var style
 
     func body(content: Content) -> some View {
-        content
-            // The glass blur stays tied to the light/dark base by design; a
-            // custom theme recolors the border, not the translucent surface.
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: CounterRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: CounterRadius.md)
-                    .strokeBorder(theme.border, lineWidth: 0.5)
-            )
+        content.modifier(PanelSurface(theme: theme, style: style))
+    }
+}
+
+/// The panel's surface, split out so the `#available` branch doesn't block
+/// inferring `some View` (same pattern as `GlassInputBackground`).
+///
+/// Glass on iOS 26 uses the native liquid-glass material (real specular
+/// highlights and chromatic fringing); older OS falls back to a frosted
+/// `.ultraThinMaterial`. Flat themes get a solid surface fill. Radius and the
+/// drop shadow follow the theme either way.
+private struct PanelSurface: ViewModifier {
+    let theme: CounterPalette
+    let style: CounterStyle
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: style.radiusMedium)
+        let shadowColor: Color = style.shadow ? .black.opacity(0.45) : .clear
+
+        if style.glass, #available(iOS 26, *) {
+            content
+                .glassEffect(in: shape)
+                .shadow(color: shadowColor, radius: style.shadow ? 16 : 0, y: style.shadow ? 8 : 0)
+        } else if style.glass {
+            content
+                .background(.ultraThinMaterial)
+                .clipShape(shape)
+                .overlay(shape.strokeBorder(theme.border, lineWidth: 0.5))
+                .shadow(color: shadowColor, radius: style.shadow ? 16 : 0, y: style.shadow ? 8 : 0)
+        } else {
+            content
+                .background(theme.surface)
+                .clipShape(shape)
+                .overlay(shape.strokeBorder(theme.border, lineWidth: 0.5))
+                .shadow(color: shadowColor, radius: style.shadow ? 16 : 0, y: style.shadow ? 8 : 0)
+        }
     }
 }
 
@@ -45,15 +73,16 @@ extension View {
 
 private struct CounterInputModifier: ViewModifier {
     @Environment(\.counterTheme) private var theme
+    @Environment(\.counterStyle) private var style
 
     func body(content: Content) -> some View {
         content
             .padding(.horizontal, CounterSpacing.md)
             .padding(.vertical, CounterSpacing.sm)
             .background(theme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: CounterRadius.sm))
+            .clipShape(RoundedRectangle(cornerRadius: style.radiusSmall))
             .overlay(
-                RoundedRectangle(cornerRadius: CounterRadius.sm)
+                RoundedRectangle(cornerRadius: style.radiusSmall)
                     .strokeBorder(theme.border, lineWidth: 0.5)
             )
     }
@@ -118,6 +147,7 @@ extension View {
 /// whole bar is the button's interactive region.
 private struct CounterPrimaryButtonStyle: ButtonStyle {
     @Environment(\.counterTheme) private var theme
+    @Environment(\.counterStyle) private var style
     let isLoading: Bool
 
     func makeBody(configuration: Configuration) -> some View {
@@ -129,7 +159,7 @@ private struct CounterPrimaryButtonStyle: ButtonStyle {
             // stays legible on both the amber default and custom accents.
             .foregroundStyle(theme.accentContrast)
             .fontWeight(.semibold)
-            .clipShape(RoundedRectangle(cornerRadius: CounterRadius.sm))
+            .clipShape(RoundedRectangle(cornerRadius: style.radiusSmall))
             .contentShape(Rectangle())
             // Dim while loading, plus a small press-down cue.
             .opacity(isLoading ? 0.7 : (configuration.isPressed ? 0.85 : 1))
@@ -147,6 +177,7 @@ extension View {
 
 private struct CounterSecondaryButtonStyle: ButtonStyle {
     @Environment(\.counterTheme) private var theme
+    @Environment(\.counterStyle) private var style
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -154,9 +185,9 @@ private struct CounterSecondaryButtonStyle: ButtonStyle {
             .padding(.vertical, CounterSpacing.md)
             .background(theme.surface)
             .foregroundStyle(theme.text)
-            .clipShape(RoundedRectangle(cornerRadius: CounterRadius.sm))
+            .clipShape(RoundedRectangle(cornerRadius: style.radiusSmall))
             .overlay(
-                RoundedRectangle(cornerRadius: CounterRadius.sm)
+                RoundedRectangle(cornerRadius: style.radiusSmall)
                     .strokeBorder(theme.border, lineWidth: 0.5)
             )
             .contentShape(Rectangle())

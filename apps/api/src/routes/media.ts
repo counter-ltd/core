@@ -22,6 +22,7 @@ import { errors } from '../lib/errors.ts';
 import { sniffMime, imageDimensions, storeObject } from '../services/media.ts';
 import type { AppEnv } from '../types.ts';
 
+/** Hono router mounted at /media. Handles all image upload traffic. */
 export const mediaRoutes = new Hono<AppEnv>();
 
 mediaRoutes.use('*', requireAuth);

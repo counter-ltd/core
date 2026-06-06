@@ -33,6 +33,7 @@ import { deviceRoutes } from './routes/devices.ts';
 import { oauthRoutes } from './routes/oauth.ts';
 import { tunnelRoutes } from './routes/tunnel.ts';
 import { discordBotRoutes } from './routes/discord-bot.ts';
+import { githubRoutes } from './routes/github.ts';
 import { webPushRoutes } from './routes/web-push.ts';
 import { adminRoutes } from './routes/admin.ts';
 import { reportRoutes } from './routes/reports.ts';
@@ -82,6 +83,7 @@ export function createApp() {
   app.route('/devices', deviceRoutes);
   app.route('/tunnel', tunnelRoutes);
   app.route('/discord-bot', discordBotRoutes);
+  app.route('/github', githubRoutes);
   app.route('/web-push', webPushRoutes);
   app.route('/reports', reportRoutes);
   app.route('/admin', adminRoutes);

@@ -3,7 +3,7 @@
 // Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
 
 /**
- * The shape of the environment the API runs against.
+ * Shared TypeScript types for the API layer.
  *
  * Hono is generic over an env type so `c.env` and `c.get(...)` stay typed end
  * to end. These interfaces are that contract: what the platform injects
@@ -138,11 +138,15 @@ export interface EmailBinding {
 export interface AppEnv {
   Bindings: WorkerBindings;
   Variables: {
-    // Optional because optionalAuth runs everywhere but only fills this in when
-    // a valid access token is present. An absent userId means an anonymous call.
+    /**
+     * Optional because optionalAuth runs everywhere but only fills this in when
+     * a valid access token is present. An absent userId means an anonymous call.
+     */
     userId?: string;
-    // The caller's effective admin permissions, memoised by requirePermission so
-    // a route with several permission checks only resolves the union once.
+    /**
+     * The caller's effective admin permissions, memoised by requirePermission so
+     * a route with several permission checks only resolves the union once.
+     */
     permissions?: import('@counter/config').Permission[];
   };
 }

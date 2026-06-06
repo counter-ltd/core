@@ -3,24 +3,11 @@
 // Licensed under the Counter Social License v1.0. Full terms in LICENSE.md.
 
 /**
- * Thing Two Discord bot routes.
- *
- * Three concerns live here:
- *
- * 1. Settings (GET/PUT /discord-bot/settings) — read and toggle the user's
- *    notification delivery and posting opt-ins. Both require authentication.
- *
- * 2. Interactions (POST /discord-bot/interactions) — Discord's webhook endpoint
- *    for slash commands and message context menus. No Counter auth; verified
- *    instead by Ed25519 signature on every request. Handles:
- *      - PING (type 1): required handshake Discord sends when you register the URL
- *      - /post slash command: publish text as a Counter post
- *      - /interact slash command: fun interactions (e.g. coinflip), no auth needed
- *      - /ask slash command: chat with the bot via an OpenAI-compatible endpoint
- *      - "Share to Counter" message command: quote a Discord message with attribution
- *
- * Users must link their Discord account and enable posting in settings before
- * either command will work.
+ * Thing Two Discord bot routes. Handles the authenticated settings endpoints
+ * (GET/PUT /discord-bot/settings) and the unauthenticated Discord interactions
+ * webhook (POST /discord-bot/interactions), which processes slash commands,
+ * message context menus, and the initial PING handshake. Requests to the
+ * interactions endpoint are verified by Ed25519 signature rather than Counter JWT.
  */
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -52,7 +39,6 @@ const updateSchema = z.object({
   postingEnabled: z.boolean().optional(),
 });
 
-/** Read the caller's current Thing Two subscription state. */
 discordBotRoutes.get('/settings', async (c) => {
   const userId = requireUserId(c);
   const row = await db.query.discordBotSubscriptions.findFirst({
@@ -68,7 +54,6 @@ discordBotRoutes.get('/settings', async (c) => {
   });
 });
 
-/** Update notification delivery and/or Discord-initiated posting opt-ins. */
 discordBotRoutes.put('/settings', async (c) => {
   const userId = requireUserId(c);
   const input = await body(c, updateSchema);
@@ -179,14 +164,6 @@ const COMMAND_TYPE = {
   MESSAGE: 3,
 } as const;
 
-/**
- * Discord interactions endpoint. Must be registered as the Interactions
- * Endpoint URL in the Discord developer portal.
- *
- * Requests are authenticated by Ed25519 signature, not by Counter JWT. The
- * raw body must be read before any JSON parsing so the signature covers the
- * exact bytes Discord signed.
- */
 discordBotRoutes.post('/interactions', async (c) => {
   const env = loadServerEnv();
 

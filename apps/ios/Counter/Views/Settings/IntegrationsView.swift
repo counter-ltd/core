@@ -103,7 +103,7 @@ struct IntegrationsView: View {
                 Text("Join the Counter server first.")
                     .font(CounterFont.body(12))
                     .foregroundStyle(theme.danger)
-                Link("Join here", destination: URL(string: "https://discord.gg/MxNhac7fz3")!)
+                Link("Join here", destination: URL(string: "https://counter.ltd/discord")!)
                     .font(CounterFont.body(12))
                     .foregroundStyle(theme.accent)
             }

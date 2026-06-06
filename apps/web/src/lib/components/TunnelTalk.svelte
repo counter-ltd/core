@@ -16,6 +16,7 @@
    * the session ends, only when the local user consented.
    */
   import { onMount, onDestroy, tick } from 'svelte';
+  import Checkbox from '$lib/components/Checkbox.svelte';
   import { env } from '$env/dynamic/public';
   import { TunnelSignaling } from '$lib/tunnel-signaling';
   import { TunnelPeer } from '$lib/tunnel-p2p';
@@ -302,15 +303,13 @@
 
       <div class="tunnel-controls">
         <!-- Consent toggle -->
-        <label class="consent-toggle" title="Save transcript for both parties">
-          <input
-            type="checkbox"
-            checked={myConsent}
-            disabled={connState !== 'connected'}
-            onchange={toggleConsent}
-          />
-          Save
-        </label>
+        <Checkbox
+          class="consent-toggle"
+          title="Save transcript for both parties"
+          checked={myConsent}
+          disabled={connState !== 'connected'}
+          onchange={toggleConsent}
+        >Save</Checkbox>
 
         <button
           class="btn btn-sm btn-danger end-btn"
@@ -434,16 +433,12 @@
   .status-badge.error      { background: #450a0a; color: #f87171; }
 
   /* Consent toggle */
-  .consent-toggle {
-    display: flex;
-    align-items: center;
-    gap: 5px;
+  /* Layout and interaction are handled by Checkbox; only override the label size/colour.
+     :global is required because the class lives on Checkbox's root element. */
+  :global(.consent-toggle) {
     font-size: 0.82rem;
     color: var(--color-text-dim);
-    cursor: pointer;
-    user-select: none;
   }
-  .consent-toggle input { cursor: pointer; }
 
   .partner-consent-notice {
     font-size: 0.78rem;

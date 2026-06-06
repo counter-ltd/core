@@ -24,6 +24,7 @@
 
 import type { NotificationLiveSignal } from '@counter/types';
 
+/** Durable Object that fans live notification signals out to all open sockets for one user. */
 export class NotificationHub {
   private state: DurableObjectState;
 

@@ -21,9 +21,13 @@ struct CounterApp: App {
         WindowGroup {
             RootView()
                 .environment(env)
-                // Reading palette/base here (env is @Observable) re-runs body on
-                // a theme change, re-injecting the new colors app-wide.
+                // Reading palette/style/base here (env is @Observable) re-runs
+                // body on a theme change, re-injecting the new look app-wide.
                 .environment(\.counterTheme, env.themeStore.palette)
+                .environment(\.counterStyle, env.themeStore.style)
+                // One modifier themes every Text in the app: a monospace
+                // "terminal" theme flips the whole UI to mono with no per-view work.
+                .fontDesign(env.themeStore.style.fontDesign)
                 .preferredColorScheme(env.themeStore.base == .dark ? .dark : .light)
                 .task {
                     // Wire up the push environment on launch. No permission

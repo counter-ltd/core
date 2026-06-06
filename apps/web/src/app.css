@@ -36,18 +36,37 @@
   --radius-lg: 5px;
   --radius-pill: 999px;
 
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 36px;
+  /* Density scales the whole spacing rhythm. A theme overrides --density (e.g.
+     1.15 for an airy glass look) and every gap, pad, and margin follows,
+     because they're all derived from these tokens. Default 1 = the values we
+     shipped, so an un-themed page is unchanged. */
+  --density: 1;
+  --space-1: calc(4px * var(--density));
+  --space-2: calc(8px * var(--density));
+  --space-3: calc(12px * var(--density));
+  --space-4: calc(16px * var(--density));
+  --space-5: calc(24px * var(--density));
+  --space-6: calc(36px * var(--density));
 
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3);
 
   --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, sans-serif;
   --mono: 'Berkeley Mono', ui-monospace, 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Menlo,
     Consolas, monospace;
+  /* Headings default to the machine (mono) face; a theme can point them at the
+     body font or a serif. Body letter-spacing is a theme knob too. */
+  --font-heading: var(--mono);
+  --letter-spacing: 0;
+
+  /* Surface treatment. Defaults reproduce the flat panel exactly: fully opaque,
+     no blur, no shadow. A glass theme dials opacity down, blur up, and turns on
+     a soft shadow, and every .panel becomes a frosted plane at once. */
+  --surface-opacity: 1;
+  --surface-blur: 0px;
+  /* Saturating the backdrop is what sells real glass: colours behind the panel
+     bloom through it. Default 100% leaves the backdrop untouched. */
+  --surface-saturate: 100%;
+  --surface-shadow: none;
 
   --maxw: 620px;
 }
@@ -83,6 +102,7 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font);
+  letter-spacing: var(--letter-spacing);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
@@ -93,11 +113,12 @@ body {
   color: var(--color-accent-contrast);
 }
 
-/* Headings are machine type: tight, monospace, set in the same family as the data. */
+/* Headings are machine type by default: tight, monospace. --font-heading lets a
+   theme swap the face (e.g. to the body font, or a serif) without touching weight. */
 h1,
 h2,
 h3 {
-  font-family: var(--mono);
+  font-family: var(--font-heading);
   font-weight: 500;
   letter-spacing: -0.02em;
   margin: 0 0 var(--space-3);
@@ -112,11 +133,54 @@ a:hover {
   color: var(--color-accent);
 }
 
-/* The one surface primitive: a flat panel held by a single hairline. No blur, no glow. */
+/* The one surface primitive. Flat by default (opacity 1, blur 0, shadow none),
+   but a theme can make it glass: --surface-opacity fades the fill so the page
+   shows through, --surface-blur frosts whatever sits behind, --surface-shadow
+   lifts it off the page. color-mix builds the translucent fill from the solid
+   surface colour, so themes still set one --color-surface and get both looks. */
 .panel {
-  background: var(--color-surface);
+  background: color-mix(
+    in srgb,
+    var(--color-surface) calc(var(--surface-opacity) * 100%),
+    transparent
+  );
+  -webkit-backdrop-filter: blur(var(--surface-blur)) saturate(var(--surface-saturate));
+  backdrop-filter: blur(var(--surface-blur)) saturate(var(--surface-saturate));
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
+  /* A glass theme packs the specular highlight and chromatic-fringe rim into
+     --surface-shadow as extra inset layers, so the refraction is data, not a
+     special case here. */
+  box-shadow: var(--surface-shadow);
+}
+
+/* A card is a panel you can group rows in: same glass treatment, a touch more
+   radius, and a hairline that brightens on hover so a long list still reads as
+   discrete, tappable things. Padding stays with the caller, since a stat block
+   and a table row want different rhythms. */
+.card {
+  background: color-mix(
+    in srgb,
+    var(--color-surface) calc(var(--surface-opacity) * 100%),
+    transparent
+  );
+  -webkit-backdrop-filter: blur(var(--surface-blur)) saturate(var(--surface-saturate));
+  backdrop-filter: blur(var(--surface-blur)) saturate(var(--surface-saturate));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--surface-shadow);
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.card:hover {
+  border-color: var(--color-border-bright);
+}
+
+/* The quiet success line, sibling to .error. Green (the repost colour) so a
+   "Saved." reads as confirmation without shouting in the one amber accent. */
+.ok {
+  font-family: var(--mono);
+  color: var(--color-repost);
+  font-size: 0.82rem;
 }
 
 .btn {
@@ -164,6 +228,17 @@ a:hover {
 .btn-ghost:hover {
   background: var(--color-surface-strong);
   color: var(--color-text);
+}
+/* Destructive actions (ban, delete, remove). Outlined red at rest; hover fills
+   so the commit step is unmistakable. Overrides the amber .btn:hover. */
+.btn-danger {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 55%, transparent);
+}
+.btn-danger:hover {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: #fff;
 }
 
 input,

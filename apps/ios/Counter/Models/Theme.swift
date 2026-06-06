@@ -24,6 +24,8 @@ struct Theme: Codable, Identifiable, Hashable, Sendable {
     /// Flat map of CSS custom property name to value, e.g. `["--color-bg": "#0c0c0d"]`.
     let variables: [String: String]
     let published: Bool
+    /// True for Counter's curated catalog. The Browse list badges these.
+    let official: Bool
     /// Nil for built-in themes that have no user author.
     let author: ThemeAuthor?
     let createdAt: String

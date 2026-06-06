@@ -12,6 +12,7 @@
     "migrate": "bun run src/migrate.ts",
     "push": "drizzle-kit push",
     "seed": "bun run src/seed.ts",
+    "seed:official": "bun run src/seed-official.ts",
     "studio": "drizzle-kit studio",
     "typecheck": "tsc --noEmit"
   },
