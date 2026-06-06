@@ -272,15 +272,19 @@ export async function serializeConversationRefs(
  * Returns a Map keyed by id; the caller decides final ordering (see
  * serializePostList). Missing ids are simply absent from the map.
  *
- * @param viewerId  When set, each post gets a `viewer` block (liked / reposted);
- *                  the authors it loads are serialized with the same viewer.
- * @param shallow   Skip the topReplies fetch. Used internally when serializing
- *                  the replies themselves to prevent infinite recursion.
+ * @param viewerId   When set, each post gets a `viewer` block (liked / reposted);
+ *                   the authors it loads are serialized with the same viewer.
+ * @param replyDepth How many levels of reply preview to attach. 2 (the default)
+ *                   gives a direct reply plus one nested reply-to-a-reply, which
+ *                   is what feed and profile cards show. Each recursion drops the
+ *                   depth by one, so it bottoms out instead of recursing forever.
+ *                   Pass 0 from the thread view, which lists every reply in full
+ *                   and would only duplicate them in a preview.
  */
 export async function serializePosts(
   postIds: string[],
   viewerId?: string,
-  shallow = false,
+  replyDepth = 2,
 ): Promise<Map<string, Post>> {
   const ids = [...new Set(postIds)];
   const result = new Map<string, Post>();
@@ -466,8 +470,9 @@ export async function serializePosts(
 
   // Top replies: fetch the two oldest direct replies for each primary post that
   // has any, so feed clients can show a thread preview without a second request.
-  // Skipped when shallow=true (the recursive call for the replies themselves).
-  if (!shallow) {
+  // Each fetched reply is serialized one depth shallower, so its own topReplies
+  // give the nested reply-to-a-reply preview, then the chain stops at depth 0.
+  if (replyDepth > 0) {
     const postsWithReplies = primaryRows
       .filter((p) => (replyMap.get(p.id) ?? 0) > 0)
       .map((p) => p.id);
@@ -495,9 +500,9 @@ export async function serializePosts(
 
       const allReplyIds = [...replyIdsByParent.values()].flat();
       if (allReplyIds.length > 0) {
-        // Pass shallow=true so the replies themselves don't trigger another round
-        // of reply fetching; one level of preview is enough.
-        const replyPostMap = await serializePosts(allReplyIds, viewerId, true);
+        // One level shallower, so a direct reply still carries its own nested
+        // reply but the grandchildren stop there.
+        const replyPostMap = await serializePosts(allReplyIds, viewerId, replyDepth - 1);
         for (const [parentId, replyIds] of replyIdsByParent) {
           const parent = result.get(parentId);
           if (!parent) continue;

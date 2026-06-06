@@ -375,12 +375,12 @@ postRoutes.get('/:id/thread', async (c) => {
 
   // Serialize ancestors, the post, and replies in one batch to avoid N+1, then
   // pick each group back out of the returned map.
-  // shallow=true: the thread view lists replies explicitly, so topReplies on
+  // replyDepth=0: the thread view lists replies explicitly, so topReplies on
   // any post in this batch would just duplicate what's already rendered.
   const all = await serializePosts(
     [...ancestorIds, id, ...replyRows.map((r) => r.id)],
     viewerId,
-    true,
+    0,
   );
 
   const post = all.get(id);

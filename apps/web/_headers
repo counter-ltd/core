@@ -1,0 +1,5 @@
+# Force application/json on the Apple App Site Association file. It has no
+# extension, so Cloudflare would otherwise serve it as octet-stream; iOS expects
+# JSON when binding passkeys (webcredentials) and universal links.
+/.well-known/apple-app-site-association
+  Content-Type: application/json

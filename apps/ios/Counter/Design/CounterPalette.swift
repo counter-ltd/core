@@ -17,6 +17,7 @@
  */
 
 import SwiftUI
+import UIKit
 
 // MARK: - CSS color parsing
 
@@ -81,7 +82,57 @@ extension Color {
         }
         self.init(.sRGB, red: r, green: g, blue: b, opacity: a)
     }
+
+    /// Serializes a `Color` to a `#rrggbb` string, the inverse of
+    /// `Color(cssString:)`.
+    ///
+    /// The Create editor's `ColorPicker`s hand back `Color`s in whatever space
+    /// SwiftUI chooses, so resolve through `UIColor` into sRGB before packing
+    /// the bytes. Alpha is dropped: themes are authored solid, and the editor
+    /// disables opacity. Falls back to black if a colour can't be resolved,
+    /// which won't happen for picker output but keeps the return non-optional.
+    var hexString: String {
+        let ui = UIColor(self)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard ui.getRed(&r, green: &g, blue: &b, alpha: &a) else { return "#000000" }
+        let clamp = { (v: CGFloat) in Int((max(0, min(1, v)) * 255).rounded()) }
+        return String(format: "#%02x%02x%02x", clamp(r), clamp(g), clamp(b))
+    }
 }
+
+// MARK: - Editable tokens
+
+/// One colour a theme author can set in the Create editor: the CSS variable it
+/// drives, a display label, and the dark-scheme default.
+///
+/// Mirrors `THEME_COLOR_TOKENS` in the web app (`apps/web/src/lib/theme.ts`) so
+/// both clients expose the same palette. Defaults match `CounterPalette.dark`.
+struct ThemeColorToken: Identifiable, Sendable {
+    var id: String { key }
+    let key: String
+    let label: String
+    let defaultHex: String
+}
+
+/// The editable palette, in display order. Single source of truth for the
+/// Create editor's pickers and the variable map it submits.
+let themeColorTokens: [ThemeColorToken] = [
+    .init(key: "--color-bg", label: "Background", defaultHex: "#0c0c0d"),
+    .init(key: "--color-bg-2", label: "Background 2", defaultHex: "#161619"),
+    .init(key: "--color-surface", label: "Surface", defaultHex: "#121214"),
+    .init(key: "--color-surface-strong", label: "Surface strong", defaultHex: "#1c1c21"),
+    .init(key: "--color-border", label: "Border", defaultHex: "#2b2b31"),
+    .init(key: "--color-border-bright", label: "Border bright", defaultHex: "#45454d"),
+    .init(key: "--color-text", label: "Text", defaultHex: "#e8e8ea"),
+    .init(key: "--color-text-dim", label: "Text dim", defaultHex: "#97979e"),
+    .init(key: "--color-text-faint", label: "Text faint", defaultHex: "#64646b"),
+    .init(key: "--color-accent", label: "Accent", defaultHex: "#e0a23c"),
+    .init(key: "--color-accent-2", label: "Accent 2", defaultHex: "#6fae8f"),
+    .init(key: "--color-accent-contrast", label: "Accent contrast", defaultHex: "#0c0c0d"),
+    .init(key: "--color-like", label: "Like", defaultHex: "#e5577d"),
+    .init(key: "--color-repost", label: "Repost", defaultHex: "#4fb98a"),
+    .init(key: "--color-danger", label: "Danger", defaultHex: "#e5484d"),
+]
 
 // MARK: - Palette
 

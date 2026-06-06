@@ -23,6 +23,7 @@ import {
   text,
   boolean,
   integer,
+  bigint,
   jsonb,
   timestamp,
   primaryKey,
@@ -269,24 +270,6 @@ export const passwordResets = pgTable(
     // "the pending token(s) for this user", for reissuing, cooldown, and cleanup.
     index('password_resets_user_id_idx').on(t.userId),
   ],
-);
-
-// Per-(user, bot) cooldown for mention replies. One row per pair, stamped to now
-// the moment a reply is decided (before the model call runs), so a burst of
-// mentions inside the window can't each fire a reply. Cheap abuse and cost guard;
-// BOT.MENTION_COOLDOWN_SECONDS in @counter/config sets the window.
-export const botCooldowns = pgTable(
-  'bot_cooldowns',
-  {
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    botId: uuid('bot_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    lastRepliedAt: timestamp('last_replied_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.userId, t.botId] })],
 );
 
 // Named spaces posts can belong to, addressed by a URL-friendly slug.
@@ -723,6 +706,24 @@ export const profileThemes = pgTable('profile_themes', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+// A user's saved themes: the "saved from Browse" half of their Library. A user's
+// own authored themes are found through themes.userId, so this table only records
+// themes saved from someone else's gallery. The composite primary key on
+// (userId, themeId) means a theme can be saved at most once per user.
+export const savedThemes = pgTable(
+  'saved_themes',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    themeId: uuid('theme_id')
+      .notNull()
+      .references(() => themes.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.themeId] })],
+);
+
 // Append-only history of changes to the ranking algorithm. Backs the public
 // transparency log; commitHash ties each entry to the code that shipped it.
 export const algorithmChangelog = pgTable('algorithm_changelog', {
@@ -763,6 +764,70 @@ export const deviceKeys = pgTable(
     // Lookup "all keys for this user" when building the encryption target list.
     index('device_keys_user_id_idx').on(t.userId),
   ],
+);
+
+// Registered passkeys (WebAuthn credentials). Unlike device_keys above, which is
+// E2EE message encryption, these are an authentication factor: a passkey both
+// registers (under an authenticated session) and later signs in passwordless.
+// We store only the public key and the signature counter, never anything that
+// could impersonate the authenticator. All the base64url strings come straight
+// from @simplewebauthn and are stored verbatim.
+export const webauthnCredentials = pgTable(
+  'webauthn_credentials',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // base64url of the raw credential ID the authenticator returned. Unique, and
+    // how an assertion is matched back to its stored key at login.
+    credentialId: text('credential_id').notNull(),
+    // base64url of the COSE public key. The verifier checks assertions against it.
+    publicKey: text('public_key').notNull(),
+    // Signature counter the authenticator reports. It only ever moves forward; a
+    // value that goes backwards is the classic cloned-authenticator signal, so
+    // the verifier rejects a regression. bigint because it can exceed int32.
+    counter: bigint('counter', { mode: 'number' }).default(0).notNull(),
+    // JSON array of transport hints (["internal","hybrid", ...]), used to give the
+    // browser better autofill UI on the next ceremony. Null when unknown.
+    transports: text('transports'),
+    // 'singleDevice' | 'multiDevice' (backup eligibility). Display only.
+    deviceType: text('device_type'),
+    backedUp: boolean('backed_up').default(false).notNull(),
+    // User-facing label so someone with several passkeys can tell them apart.
+    nickname: text('nickname'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  },
+  (t) => [
+    // The credential ID is the lookup key at login and must be globally unique.
+    uniqueIndex('webauthn_credentials_credential_id_idx').on(t.credentialId),
+    // "All passkeys for this user" for the settings list and excludeCredentials.
+    index('webauthn_credentials_user_id_idx').on(t.userId),
+  ],
+);
+
+// Short-lived WebAuthn ceremony challenges. Mirrors oauthStates: one row per
+// in-flight register/authenticate, consumed (deleted) when the ceremony
+// finishes. A challenge is a single-use nonce, not a bearer credential, so it's
+// stored in plaintext (useless without the matching private key) rather than
+// hashed the way refresh tokens are.
+export const webauthnChallenges = pgTable(
+  'webauthn_challenges',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    challenge: text('challenge').notNull(),
+    // Null for authentication (login) ceremonies: the user isn't known until the
+    // assertion resolves a credential. Set for registration, which runs under an
+    // authenticated session.
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    // 'registration' | 'authentication'. Scopes a challenge to its ceremony so a
+    // registration nonce can't be redeemed as a login and vice versa.
+    ceremony: text('ceremony').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('webauthn_challenges_user_id_idx').on(t.userId)],
 );
 
 // Direct messages: one conversation row per pair of users, one message row per

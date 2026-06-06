@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@counter/config": "workspace:*",
-    "@counter/types": "workspace:*"
+    "@counter/types": "workspace:*",
+    "@simplewebauthn/browser": "13.3.0"
   },
   "devDependencies": {
     "@sveltejs/adapter-cloudflare": "^7.0.0",

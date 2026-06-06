@@ -76,6 +76,9 @@ struct PrivateUser: Decodable, Identifiable, Hashable, Sendable {
     let avatarUrl: String?
     let verified: Bool
     let email: String
+    /// False for OAuth-only accounts that have never set a password. Drives the
+    /// "set a password" vs "change password" copy in security settings.
+    let hasPassword: Bool
     let createdAt: String
     let counts: UserCounts
     let signals: [TrustBadge]?

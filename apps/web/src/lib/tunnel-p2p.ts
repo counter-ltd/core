@@ -55,6 +55,16 @@ export class TunnelPeer {
   onConnected: (() => void) | null = null;
   /** Fires when the data channel closes (peer left or connection lost). */
   onDisconnected: (() => void) | null = null;
+  /** Fires when ICE negotiation fails and the connection cannot be established. */
+  onConnectionFailed: (() => void) | null = null;
+  /**
+   * Fires as the ICE negotiation progresses, with a human-readable label
+   * describing the current phase. Useful for showing sub-step feedback during
+   * the "Establishing link…" stage.
+   *
+   * @param label - Short phrase describing the current ICE phase.
+   */
+  onIceStatus: ((label: string) => void) | null = null;
   /** Fires for each decrypted message received from the remote peer. */
   onMessage: ((msg: TunnelChatMessage) => void) | null = null;
   /**
@@ -90,6 +100,37 @@ export class TunnelPeer {
       }
     };
 
+    // 'failed' is terminal: ICE gave up after exhausting all candidate pairs.
+    // Without this handler the UI stays stuck on "Connecting…" indefinitely.
+    this.pc.onconnectionstatechange = () => {
+      if (this.pc.connectionState === 'failed') {
+        this.onConnectionFailed?.();
+      }
+    };
+
+    this.pc.onicegatheringstatechange = () => {
+      switch (this.pc.iceGatheringState) {
+        case 'gathering':
+          this.onIceStatus?.('Gathering network candidates…');
+          break;
+        case 'complete':
+          this.onIceStatus?.('Candidates gathered, testing paths…');
+          break;
+      }
+    };
+
+    this.pc.oniceconnectionstatechange = () => {
+      switch (this.pc.iceConnectionState) {
+        case 'checking':
+          this.onIceStatus?.('Checking connection paths…');
+          break;
+        case 'disconnected':
+          // Transient — browser will try to recover before firing 'failed'.
+          this.onIceStatus?.('Connection interrupted, trying to recover…');
+          break;
+      }
+    };
+
     // The participant side receives the data channel rather than creating it.
     this.pc.ondatachannel = ({ channel }) => {
       this.wireChannel(channel);
@@ -107,6 +148,7 @@ export class TunnelPeer {
     const ch = this.pc.createDataChannel('tunnel', { ordered: true });
     this.wireChannel(ch);
 
+    this.onIceStatus?.('Creating offer…');
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
     return offer;
@@ -119,6 +161,7 @@ export class TunnelPeer {
    * channel. The data channel fires `onConnected` once the initiator sets it.
    */
   async receiveOffer(sdp: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit> {
+    this.onIceStatus?.('Received offer, sending answer…');
     await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
     await this.drainPendingIce();
     const answer = await this.pc.createAnswer();
@@ -132,6 +175,7 @@ export class TunnelPeer {
    * Call this after receiving the answer via the signaling channel.
    */
   async receiveAnswer(sdp: RTCSessionDescriptionInit): Promise<void> {
+    this.onIceStatus?.('Answer received, waiting for connection…');
     await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
     await this.drainPendingIce();
   }

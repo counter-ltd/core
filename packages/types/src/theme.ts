@@ -46,6 +46,20 @@ export const createThemeSchema = z.object({
 export type CreateThemeInput = z.infer<typeof createThemeSchema>;
 
 /**
+ * Body for editing a theme you own (`PATCH /themes/:id`). Every field is
+ * optional so a caller can change just the name, just the colours, or flip
+ * published without resending the whole theme. `description` is nullable here
+ * (unlike create) so a draft's description can be cleared back to empty.
+ */
+export const updateThemeSchema = z.object({
+  name: z.string().min(1).max(80).optional(),
+  description: z.string().max(500).nullable().optional(),
+  variables: themeVariablesSchema.optional(),
+  published: z.boolean().optional(),
+});
+export type UpdateThemeInput = z.infer<typeof updateThemeSchema>;
+
+/**
  * Body for choosing what theme a user sees. `themeId: null` clears the active
  * theme back to default; `customVariables` lets them apply one-off overrides
  * without saving a whole named theme.
@@ -66,4 +80,17 @@ export interface Theme {
   author: { id: string; username: string } | null; // null for built-in/system themes
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * A user's Library, as returned by `GET /themes/library`.
+ *
+ * `created` are themes the user authored (drafts included, since they own them);
+ * `saved` are published themes they kept from someone else's gallery. The two
+ * stay as separate lists rather than one merged set so the UI can label each
+ * section without re-deriving ownership on the client.
+ */
+export interface ThemeLibrary {
+  created: Theme[];
+  saved: Theme[];
 }

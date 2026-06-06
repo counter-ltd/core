@@ -56,6 +56,60 @@ final class AppEnvironment {
         await themeStore.loadMore(client: apiClient)
     }
 
+    /// Loads the signed-in user's theme library (created + saved) if needed.
+    func loadThemeLibrary() async {
+        await themeStore.loadLibraryIfNeeded(client: apiClient)
+    }
+
+    /// Saves a published theme into the user's library.
+    func saveTheme(_ theme: Theme) async {
+        await themeStore.save(theme, client: apiClient)
+    }
+
+    /// Removes a theme from the user's library.
+    func unsaveTheme(_ theme: Theme) async {
+        await themeStore.unsave(theme, client: apiClient)
+    }
+
+    /// Deletes one of the user's own themes.
+    func deleteTheme(_ theme: Theme) async {
+        await themeStore.delete(theme, client: apiClient)
+    }
+
+    /// Creates a theme owned by the user, returning whether it succeeded.
+    func createTheme(
+        name: String,
+        description: String?,
+        variables: [String: String],
+        published: Bool
+    ) async -> Bool {
+        await themeStore.createTheme(
+            name: name,
+            description: description,
+            variables: variables,
+            published: published,
+            client: apiClient
+        )
+    }
+
+    /// Edits one of the user's own themes, returning whether it succeeded.
+    func updateTheme(
+        id: String,
+        name: String,
+        description: String,
+        variables: [String: String],
+        published: Bool
+    ) async -> Bool {
+        await themeStore.updateTheme(
+            id: id,
+            name: name,
+            description: description,
+            variables: variables,
+            published: published,
+            client: apiClient
+        )
+    }
+
     // MARK: - App launch
 
     /// Restores the active session from Keychain. Must be called once from

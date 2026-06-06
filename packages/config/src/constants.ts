@@ -30,12 +30,6 @@ export const POST = {
   MAX_BODY_LENGTH: 5000,
 } as const;
 
-/** On-Counter bot (Thing One) reply tuning. */
-export const BOT = {
-  /** Min seconds between mention-replies from one bot to the same user. Spam + cost guard. */
-  MENTION_COOLDOWN_SECONDS: 30,
-} as const;
-
 /**
  * Media upload + storage limits, enforced server-side at POST /media.
  *

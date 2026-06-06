@@ -116,6 +116,15 @@ struct SettingsView: View {
                     .foregroundStyle(theme.text)
             }
             .listRowBackground(theme.surface)
+
+            NavigationLink {
+                SecuritySettingsView()
+            } label: {
+                Label("Password & passkeys", systemImage: "key")
+                    .font(CounterFont.body(14))
+                    .foregroundStyle(theme.text)
+            }
+            .listRowBackground(theme.surface)
         }
     }
 

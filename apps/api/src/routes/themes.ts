@@ -11,9 +11,14 @@
  * only ever touch the caller's own rows.
  */
 import { Hono } from 'hono';
-import { db, themes, users, eq, and, desc } from '@counter/db';
-import { createThemeSchema, paginationQuerySchema, themeVariablesSchema } from '@counter/types';
-import type { Page, Theme, ThemeVariables } from '@counter/types';
+import { db, themes, savedThemes, users, eq, and, desc } from '@counter/db';
+import {
+  createThemeSchema,
+  paginationQuerySchema,
+  themeVariablesSchema,
+  updateThemeSchema,
+} from '@counter/types';
+import type { Page, Theme, ThemeLibrary, ThemeVariables } from '@counter/types';
 import { body, query } from '../lib/validate.ts';
 import { errors } from '../lib/errors.ts';
 import { keysetWhere, paginate } from '../lib/cursor.ts';
@@ -75,6 +80,40 @@ themeRoutes.get('/', async (c) => {
   return c.json<Page<Theme>>({ data, nextCursor });
 });
 
+// The caller's Library: themes they authored, plus themes they saved from other
+// people's galleries. Registered before `/:id` on purpose, otherwise the param
+// route would match "library" as an id and 404.
+themeRoutes.get('/library', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+
+  // Own themes, drafts and all, newest first. The author is the caller, so no
+  // join is needed to credit them.
+  const createdRows = await db
+    .select()
+    .from(themes)
+    .where(eq(themes.userId, userId))
+    .orderBy(desc(themes.createdAt), desc(themes.id));
+  const me = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  const author = me ? { id: me.id, username: me.username } : null;
+  const created = createdRows.map((row) => toTheme(row, author));
+
+  // Saved themes, ordered by when they were saved (not when they were authored),
+  // so the most recently kept theme sits at the top of the list. Joins the real
+  // author in so saved cards still credit whoever made the theme.
+  const savedRows = await db
+    .select({ theme: themes, authorId: users.id, authorUsername: users.username })
+    .from(savedThemes)
+    .innerJoin(themes, eq(themes.id, savedThemes.themeId))
+    .innerJoin(users, eq(users.id, themes.userId))
+    .where(eq(savedThemes.userId, userId))
+    .orderBy(desc(savedThemes.createdAt));
+  const saved = savedRows.map((r) =>
+    toTheme(r.theme, { id: r.authorId, username: r.authorUsername }),
+  );
+
+  return c.json<ThemeLibrary>({ created, saved });
+});
+
 // Fetch one theme by id, author joined in. No published filter here, so a theme
 // is reachable by direct id even while unpublished (handy for previewing your
 // own draft via a shared link).
@@ -121,6 +160,41 @@ themeRoutes.post('/', requireAuth, async (c) => {
   );
 });
 
+// Edit one of your own themes. Same ownership rules as delete: 404 if it
+// doesn't exist, 403 if it isn't yours. Every field is optional, so this is a
+// partial update, only the keys the caller sends change.
+themeRoutes.patch('/:id', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  const id = c.req.param('id');
+  const input = await body(c, updateThemeSchema);
+
+  const row = await db.query.themes.findFirst({ where: eq(themes.id, id) });
+  if (!row) throw errors.notFound('Theme not found');
+  if (row.userId !== userId) throw errors.forbidden('You can only edit your own themes');
+
+  // Build the patch from only the fields that were actually provided, so an
+  // omitted key keeps its current value rather than getting nulled out.
+  const patch: Partial<typeof themes.$inferInsert> = { updatedAt: new Date() };
+  if (input.name !== undefined) patch.name = input.name;
+  if (input.description !== undefined) patch.description = input.description;
+  if (input.published !== undefined) patch.published = input.published;
+  // Same belt-and-braces re-validation as create: the variables are injected
+  // into pages as CSS, so re-check their shape before persisting.
+  if (input.variables !== undefined) patch.variables = themeVariablesSchema.parse(input.variables);
+
+  const [updated] = await db
+    .update(themes)
+    .set(patch)
+    // Re-assert ownership in the WHERE too, so the update can never touch
+    // another user's row even if the guard above were bypassed.
+    .where(and(eq(themes.id, id), eq(themes.userId, userId)))
+    .returning();
+  if (!updated) throw errors.internal('Failed to update theme');
+
+  const author = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  return c.json(toTheme(updated, author ? { id: author.id, username: author.username } : null));
+});
+
 // Delete one of your own themes. A theme that belongs to someone else gets a
 // 403, distinct from the 404 for one that doesn't exist, so the owner sees a
 // clear "not yours" rather than a misleading "not found".
@@ -134,5 +208,33 @@ themeRoutes.delete('/:id', requireAuth, async (c) => {
   // Re-assert userId in the WHERE as well as the check above, so the delete can
   // never hit another user's row even if the guard were ever bypassed.
   await db.delete(themes).where(and(eq(themes.id, id), eq(themes.userId, userId)));
+  return c.json({ ok: true });
+});
+
+// --- save / unsave (Library membership) ---
+
+// Save a theme into the caller's Library. The theme has to exist first (404
+// otherwise) so we never leave a dangling saved row pointing at nothing. The
+// insert is idempotent: saving the same theme twice is a no-op, not an error,
+// so a double-tap on Save doesn't blow up on the (userId, themeId) primary key.
+themeRoutes.post('/:id/save', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  const id = c.req.param('id');
+  const theme = await db.query.themes.findFirst({ where: eq(themes.id, id) });
+  if (!theme) throw errors.notFound('Theme not found');
+
+  await db.insert(savedThemes).values({ userId, themeId: id }).onConflictDoNothing();
+  return c.json({ ok: true });
+});
+
+// Remove a theme from the caller's Library. Scoped to the caller's own saved
+// row, so unsaving only ever touches your membership, never the theme itself or
+// anyone else's. Unsaving something you never saved is a harmless no-op.
+themeRoutes.delete('/:id/save', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  const id = c.req.param('id');
+  await db
+    .delete(savedThemes)
+    .where(and(eq(savedThemes.userId, userId), eq(savedThemes.themeId, id)));
   return c.json({ ok: true });
 });

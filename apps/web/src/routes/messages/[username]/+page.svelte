@@ -41,6 +41,9 @@
   // Whether an invite request is in flight (prevent double-click).
   let inviting = $state(false);
   let acceptingTunnel = $state(false);
+  // Set when a tunnel invite fails so the user knows why (e.g. partner went
+  // offline between render and click, or a pending invite already exists).
+  let tunnelError = $state<string | null>(null);
 
   // Tunnel Talk invite that arrived live, after the page was already loaded.
   // The SSR load only catches an invite that existed at first paint, so without
@@ -319,12 +322,19 @@
   async function inviteTunnel(): Promise<void> {
     if (!data.accessToken || inviting) return;
     inviting = true;
+    tunnelError = null;
     try {
       const res = await fetch(`${API}/tunnel/${data.username}/invite`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${data.accessToken}` },
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as
+          | { error: { message: string } }
+          | null;
+        tunnelError = body?.error?.message ?? 'Could not start Tunnel Talk. Try again.';
+        return;
+      }
       const json = (await res.json()) as { sessionId: string };
       // Optimistically open TunnelTalk as initiator; the server will set status
       // to 'active' once the participant accepts.
@@ -388,14 +398,19 @@
       </div>
       <!-- Tunnel Talk invite button: only when partner is online and no session active -->
       {#if partnerOnline && !activeTunnel && data.convInfo.status === 'active'}
-        <button
-          class="btn btn-sm tunnel-btn"
-          onclick={() => void inviteTunnel()}
-          disabled={inviting}
-          title="Invite to Tunnel Talk"
-        >
-          {inviting ? 'Inviting…' : '⚡ Tunnel Talk'}
-        </button>
+        <div class="tunnel-wrap">
+          <button
+            class="btn btn-sm tunnel-btn"
+            onclick={() => void inviteTunnel()}
+            disabled={inviting}
+            title="Invite to Tunnel Talk"
+          >
+            {inviting ? 'Inviting…' : '⚡ Tunnel Talk'}
+          </button>
+          {#if tunnelError}
+            <p class="tunnel-error error">{tunnelError}</p>
+          {/if}
+        </div>
       {/if}
       <div class="lock-wrap">
         <button
@@ -1121,11 +1136,21 @@
   }
 
   /* Tunnel Talk invite button in the conversation header */
+  .tunnel-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--space-1);
+  }
   .tunnel-btn {
     font-size: 0.78rem;
     opacity: 0.85;
   }
   .tunnel-btn:hover { opacity: 1; }
+  .tunnel-error {
+    font-size: 0.75rem;
+    margin: 0;
+  }
 
   /* Centered system marker for tunnel_started / tunnel_ended / asterisk */
   .tunnel-marker {

@@ -18,7 +18,7 @@ if (!env.DATABASE_URL) throw new Error('DATABASE_URL must be set to seed.');
 // know there's a database to talk to.
 const { createDb, runWithDb, db } = await import('./client.ts');
 const schema = await import('./schema.ts');
-const { users, posts, follows, likes, reposts, tags, postTags, themes, algorithmChangelog, postViews, groups, userGroups } =
+const { users, posts, follows, likes, reposts, tags, postTags, themes, savedThemes, algorithmChangelog, postViews, groups, userGroups } =
   schema;
 
 const instance = createDb(env.DATABASE_URL);
@@ -38,6 +38,8 @@ await runWithDb(instance, async () => {
   await db.delete(follows);
   await db.delete(posts);
   await db.delete(tags);
+  // saved_themes references themes, so clear it before the themes it points at.
+  await db.delete(savedThemes);
   await db.delete(themes);
   await db.delete(algorithmChangelog);
   // user_groups references both users and groups, so clear it before either.
@@ -137,20 +139,58 @@ await runWithDb(instance, async () => {
   ];
   await db.insert(postViews).values(views);
 
-  await db.insert(themes).values([
-    {
-      userId: ada.id,
-      name: 'Glass Noir',
-      description: 'Deep dark with a cold glass edge.',
-      variables: {
-        '--color-bg': '#08090c',
-        '--color-surface': 'rgba(255,255,255,0.04)',
-        '--color-text': '#e8eaf0',
-        '--color-accent': '#7aa2ff',
+  // A few published themes across different authors so Browse and Library have
+  // something to show in dev. We capture the rows so the saved_themes seed below
+  // can reference a real theme id.
+  const [glassNoir, paperTrail] = await db
+    .insert(themes)
+    .values([
+      {
+        userId: ada.id,
+        name: 'Glass Noir',
+        description: 'Deep dark with a cold glass edge.',
+        variables: {
+          '--color-bg': '#08090c',
+          '--color-surface': 'rgba(255,255,255,0.04)',
+          '--color-text': '#e8eaf0',
+          '--color-accent': '#7aa2ff',
+        },
+        published: true,
       },
-      published: true,
-    },
-  ]);
+      {
+        userId: linus.id,
+        name: 'Paper Trail',
+        description: 'Warm light mode, ink on cream.',
+        variables: {
+          '--color-bg': '#f7f6f3',
+          '--color-surface': '#ffffff',
+          '--color-text': '#17160f',
+          '--color-accent': '#aa6300',
+          '--color-accent-2': '#2f8f68',
+        },
+        published: true,
+      },
+      {
+        userId: grace.id,
+        name: 'Terminal Green',
+        description: 'Phosphor-on-black, all signal.',
+        variables: {
+          '--color-bg': '#020402',
+          '--color-surface': '#0a0f0a',
+          '--color-text': '#9bff9b',
+          '--color-accent': '#3dff7a',
+          '--color-accent-2': '#1f7a3d',
+        },
+        published: true,
+      },
+    ])
+    .returning();
+
+  // Seed one save so a logged-in user's Library "Saved" section isn't empty:
+  // ada keeps linus's Paper Trail.
+  if (glassNoir && paperTrail) {
+    await db.insert(savedThemes).values([{ userId: ada.id, themeId: paperTrail.id }]);
+  }
 
   // First entry in the public transparency log, pinned to the algorithm version
   // shipped in @counter/config so the log and the live weights agree.

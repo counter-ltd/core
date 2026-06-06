@@ -183,6 +183,27 @@
       "when": 1781140000000,
       "tag": "0025_bot_cooldowns",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1781150000000,
+      "tag": "0026_drop_bot_cooldowns",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1781160000000,
+      "tag": "0027_webauthn",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1781170000000,
+      "tag": "0028_saved_themes",
+      "breakpoints": true
     }
   ]
 }

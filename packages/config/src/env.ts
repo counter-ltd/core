@@ -153,6 +153,16 @@ const serverEnvSchema = z.object({
   // scripts/deploy-ask-prompt.sh from private/thing-personas.mjs.
   THING_ONE_SYSTEM_PROMPT: z.string().optional().default(''),
   THING_ONE_SYSTEM_PROMPT_2: z.string().optional().default(''),
+  // WebAuthn (passkey) relying-party config. The RP ID is the registrable
+  // domain of the WEB origin the ceremony runs on (e.g. counter.ltd), NOT the
+  // API subdomain, and the browser enforces that the page origin matches. The
+  // origin is the full scheme+host the assertion is signed against. iOS uses the
+  // same RP ID via an associated domain (webcredentials:<RP_ID>). Defaults target
+  // local web dev so passkeys work out of the box; set the prod values via
+  // `wrangler secret put` / `.dev.vars`.
+  WEBAUTHN_RP_ID: z.string().optional().default('localhost'),
+  WEBAUTHN_RP_NAME: z.string().optional().default('Counter'),
+  WEBAUTHN_ORIGIN: z.string().optional().default('http://localhost:5173'),
   PUBLIC_API_URL: z.string().url().default('http://localhost:3000'),
   // API-specific port. We deliberately do NOT read a bare `PORT`: in a monorepo
   // dev setup the web framework also claims PORT, and some harnesses inject it,

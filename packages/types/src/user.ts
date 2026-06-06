@@ -154,6 +154,12 @@ export interface PublicUser {
 /** The owner's own view of themselves: PublicUser plus the private fields. */
 export interface PrivateUser extends PublicUser {
   email: string; // only ever exposed to the account holder
+  /**
+   * Whether this account has a password set. False for OAuth-only signups, which
+   * lets the settings UI offer "set a password" instead of "change password" and
+   * skip asking for a current one that doesn't exist.
+   */
+  hasPassword: boolean;
   presenceSettings: PresenceSettings;
   /**
    * The groups this account belongs to and the permissions they add up to. Both

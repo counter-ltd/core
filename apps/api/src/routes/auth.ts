@@ -12,7 +12,7 @@
  * are called out at each handler.
  */
 import { Hono } from 'hono';
-import { db, users, deviceKeys, eq } from '@counter/db';
+import { db, users, deviceKeys, webauthnCredentials, eq, and, desc } from '@counter/db';
 import { loadServerEnv } from '@counter/config/env';
 import {
   registerSchema,
@@ -23,8 +23,25 @@ import {
   registerPublicKeySchema,
   requestPasswordResetSchema,
   confirmPasswordResetSchema,
+  setPasswordSchema,
+  passkeyRegisterVerifySchema,
+  passkeyAuthVerifySchema,
+  passkeyRenameSchema,
 } from '@counter/types';
-import type { AuthResponse } from '@counter/types';
+import type { AuthResponse, PasskeySummary } from '@counter/types';
+import type {
+  RegistrationResponseJSON,
+  AuthenticationResponseJSON,
+} from '@simplewebauthn/server';
+import {
+  buildRegistrationOptions,
+  buildAuthenticationOptions,
+  storeChallenge,
+  consumeChallenge,
+  verifyRegistration,
+  verifyAuthentication,
+  extractChallenge,
+} from '../lib/webauthn.ts';
 import { body } from '../lib/validate.ts';
 import { errors } from '../lib/errors.ts';
 import {
@@ -314,6 +331,161 @@ authRoutes.post('/password-reset/confirm', async (c) => {
   const input = await body(c, confirmPasswordResetSchema);
   const ok = await consumePasswordReset(input.token, input.password);
   if (!ok) throw errors.validation('That reset link is invalid or has expired.');
+  return c.json({ ok: true });
+});
+
+// Set or change the signed-in user's password. Two paths share one handler: an
+// account that already has a password must prove the current one before changing
+// it, while an OAuth-only account (passwordHash null) is setting its first
+// password and has nothing to prove. Unlike a reset, this keeps every other
+// session alive: the user knows their own current state, so there's no reason to
+// boot their other devices.
+authRoutes.post('/password', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  const input = await body(c, setPasswordSchema);
+
+  const row = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  if (!row) throw errors.notFound('User not found');
+
+  // Only gate on the current password when one exists. The same 401 covers a
+  // missing and a wrong current password, so the response doesn't distinguish
+  // "you forgot to send it" from "it was wrong".
+  if (row.passwordHash) {
+    if (!input.currentPassword || !(await verifyPassword(input.currentPassword, row.passwordHash))) {
+      throw errors.unauthorized('Current password is incorrect');
+    }
+  }
+
+  const passwordHash = await hashPassword(input.newPassword);
+  await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
+  return c.json({ ok: true });
+});
+
+// --- passkeys (WebAuthn) ---
+
+// Start enrolling a passkey for the signed-in user. Returns the creation options
+// the browser feeds to navigator.credentials.create, and stashes the challenge
+// so the verify step can confirm the browser signed the value we issued.
+authRoutes.post('/passkeys/register/options', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  const row = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  if (!row) throw errors.notFound('User not found');
+  const options = await buildRegistrationOptions({
+    id: row.id,
+    username: row.username,
+    displayName: row.displayName,
+  });
+  await storeChallenge(options.challenge, 'registration', userId);
+  return c.json(options);
+});
+
+// Finish enrolling a passkey. The challenge is recovered from the attestation's
+// clientDataJSON and consumed (one-time) before verification, so a replayed or
+// expired ceremony is rejected. On success the credential's public key and
+// counter are stored; we never keep anything that could impersonate the device.
+authRoutes.post('/passkeys/register/verify', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  const input = await body(c, passkeyRegisterVerifySchema);
+  const response = input.response as unknown as RegistrationResponseJSON;
+
+  const challenge = extractChallenge(response);
+  await consumeChallenge(challenge, 'registration');
+  const reg = await verifyRegistration(response, challenge);
+
+  await db.insert(webauthnCredentials).values({
+    userId,
+    credentialId: reg.credentialId,
+    publicKey: reg.publicKey,
+    counter: reg.counter,
+    transports: reg.transports,
+    deviceType: reg.deviceType,
+    backedUp: reg.backedUp,
+    nickname: input.nickname ?? null,
+  });
+  return c.json({ ok: true });
+});
+
+// Start a passwordless login. Public: the caller isn't authenticated yet. The
+// options carry no allowCredentials, so the browser offers any discoverable
+// passkey for this site and the account is resolved from whichever one signs.
+authRoutes.post('/passkeys/authenticate/options', async (c) => {
+  const options = await buildAuthenticationOptions();
+  await storeChallenge(options.challenge, 'authentication');
+  return c.json(options);
+});
+
+// Finish a passwordless login. Verifies the assertion against the issued
+// challenge, resolves the user from the signing credential, runs the same
+// moderation gate as password login, then issues a normal token pair. A counter
+// regression (cloned-authenticator signal) fails verification inside the lib.
+authRoutes.post('/passkeys/authenticate/verify', async (c) => {
+  const input = await body(c, passkeyAuthVerifySchema);
+  const response = input.response as unknown as AuthenticationResponseJSON;
+
+  const challenge = extractChallenge(response);
+  await consumeChallenge(challenge, 'authentication');
+  const { userId } = await verifyAuthentication(response, challenge);
+
+  const row = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  // A passkey whose owner was hard-deleted shouldn't resolve, but fail uniformly
+  // rather than leaking that the credential is orphaned.
+  if (!row) throw errors.unauthorized('Invalid credentials');
+  await enforceModerationStatus(row);
+
+  const tokens = await issueTokens(userId);
+  const user = await getPrivateUser(userId);
+  return c.json<AuthResponse>({ ...tokens, user });
+});
+
+// List the caller's passkeys for the settings screen. Public key and counter are
+// deliberately omitted; only the label and timestamps a person needs to tell
+// their passkeys apart.
+authRoutes.get('/passkeys', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  const rows = await db
+    .select({
+      id: webauthnCredentials.id,
+      nickname: webauthnCredentials.nickname,
+      createdAt: webauthnCredentials.createdAt,
+      lastUsedAt: webauthnCredentials.lastUsedAt,
+      deviceType: webauthnCredentials.deviceType,
+    })
+    .from(webauthnCredentials)
+    .where(eq(webauthnCredentials.userId, userId))
+    .orderBy(desc(webauthnCredentials.createdAt));
+  return c.json<PasskeySummary[]>(
+    rows.map((r) => ({
+      id: r.id,
+      nickname: r.nickname,
+      createdAt: r.createdAt.toISOString(),
+      lastUsedAt: r.lastUsedAt ? r.lastUsedAt.toISOString() : null,
+      deviceType: r.deviceType,
+    })),
+  );
+});
+
+// Relabel a passkey. Scoped to the caller's own rows, so an id from someone
+// else's account matches nothing and 404s rather than touching their data.
+authRoutes.patch('/passkeys/:id', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  const id = c.req.param('id');
+  const input = await body(c, passkeyRenameSchema);
+  const updated = await db
+    .update(webauthnCredentials)
+    .set({ nickname: input.nickname })
+    .where(and(eq(webauthnCredentials.id, id), eq(webauthnCredentials.userId, userId)))
+    .returning({ id: webauthnCredentials.id });
+  if (!updated.length) throw errors.notFound('Passkey not found');
+  return c.json({ ok: true });
+});
+
+// Remove a passkey. Scoped to the caller's rows for the same reason as rename.
+authRoutes.delete('/passkeys/:id', requireAuth, async (c) => {
+  const userId = requireUserId(c);
+  const id = c.req.param('id');
+  await db
+    .delete(webauthnCredentials)
+    .where(and(eq(webauthnCredentials.id, id), eq(webauthnCredentials.userId, userId)));
   return c.json({ ok: true });
 });
 

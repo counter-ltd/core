@@ -138,6 +138,42 @@
   }
 </script>
 
+<!--
+  One indented level of reply previews. Recurses through each reply's own
+  topReplies so a reply-to-a-reply shows nested under its parent. The avatar
+  carries its own profile link, so the row itself can't be an anchor (a nested
+  <a> is invalid and breaks SSR); the snippet text is the link to the reply.
+-->
+{#snippet replyTree(replies: Post[])}
+  {#each replies as reply, i (reply.id)}
+    <div class="reply">
+      <div class="reply-rail">
+        <Avatar user={reply.author} size={28} />
+        <!-- Connector drops to the next sibling or down into nested children, so
+             the previews read as one thread. Nothing trails the final leaf. -->
+        {#if i < replies.length - 1 || reply.topReplies?.length}
+          <span class="thread-line"></span>
+        {/if}
+      </div>
+      <div class="reply-main">
+        <a class="reply-body" href="/{reply.author.username}/post/{reply.id}">
+          <span class="reply-name">{reply.author.displayName || reply.author.username}</span>
+          {#if reply.deleted}
+            <span class="reply-text faint deleted">[deleted]</span>
+          {:else if reply.body}
+            <span class="reply-text faint">{reply.body}</span>
+          {/if}
+        </a>
+        {#if reply.topReplies?.length}
+          <div class="reply-children">
+            {@render replyTree(reply.topReplies)}
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/each}
+{/snippet}
+
 {#if !nuked}
 <article class="post panel" class:nested>
   <div class="head">
@@ -220,6 +256,17 @@
       <a class="act" href="/insights?post={post.id}" title="Insights — open from post one">
         <span class="ico">▦</span>{compact(post.counts.views)}
       </a>
+    </div>
+  {/if}
+
+  <!-- Reply preview: the oldest replies the feed sends down on topReplies, so a
+       thread shows its first responses without a click. The API nests one level,
+       so a reply that itself drew a reply renders that too (replyTree recurses).
+       Only on top-level cards (a quoted post never carries replies), and the
+       field is absent on the thread page, where replies are listed in full. -->
+  {#if !nested && post.topReplies?.length}
+    <div class="replies">
+      {@render replyTree(post.topReplies)}
     </div>
   {/if}
 
@@ -392,6 +439,69 @@
   .ico {
     font-size: 1.05rem;
     line-height: 1;
+  }
+
+  /* --- reply preview --- */
+  .replies {
+    margin-top: var(--space-3);
+    border-top: 1px solid var(--color-border);
+    padding-top: var(--space-3);
+  }
+  .reply {
+    display: flex;
+    gap: var(--space-3);
+  }
+  .reply-body:hover .reply-name {
+    color: var(--color-accent);
+  }
+  /* The avatar column carries the thread connector, so the line tracks the
+     avatar width and stays centred under it whatever the row height. */
+  .reply-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 28px;
+    flex-shrink: 0;
+  }
+  .thread-line {
+    flex: 1;
+    width: 2px;
+    margin-top: 4px;
+    /* A faded rule so the connector reads as structure, not content. */
+    background: color-mix(in srgb, var(--color-text-dim) 25%, transparent);
+  }
+  .reply-main {
+    min-width: 0;
+    flex: 1;
+    padding-bottom: var(--space-3);
+  }
+  .reply-body {
+    display: block;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    color: inherit;
+  }
+  /* Nested replies indent under the parent body and start their own thread
+     line, so the reply-to-a-reply reads as hanging off the reply above it. */
+  .reply-children {
+    margin-top: var(--space-3);
+  }
+  .reply-name {
+    font-weight: 500;
+    margin-right: var(--space-2);
+  }
+  .reply-text {
+    /* Clamp to two lines like the iOS preview; a long reply gets an ellipsis. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .reply-text.deleted {
+    font-style: italic;
   }
 
   /* --- moderation control --- */

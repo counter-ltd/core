@@ -84,6 +84,9 @@ export async function getPrivateUser(userId: string): Promise<PrivateUser> {
   return {
     ...pub,
     email,
+    // null hash means an OAuth-only account that has never set a password. The
+    // row is already loaded, so this costs nothing extra.
+    hasPassword: row.passwordHash !== null,
     groups: toGroupSummaries(groupRows),
     permissions: effectivePermissions(groupRows),
     status: row.status as UserStatus,

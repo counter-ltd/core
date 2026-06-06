@@ -20,6 +20,13 @@
     // OAuth app client IDs (public). Secrets go via `wrangler secret put`.
     "GITHUB_CLIENT_ID": "Ov23liMcNylFsyUtSvNq",
     "DISCORD_CLIENT_ID": "1512262961459368119",
+    // Passkey relying party. Public config, not secrets. WEBAUTHN_RP_ID is the
+    // web registrable domain (must match the apple-app-site-association
+    // webcredentials entry and the iOS associated domain); WEBAUTHN_ORIGIN is the
+    // full web origin the browser ceremony is signed against.
+    "WEBAUTHN_RP_ID": "counter.ltd",
+    "WEBAUTHN_RP_NAME": "Counter",
+    "WEBAUTHN_ORIGIN": "https://counter.ltd",
     // Public origin the media bucket is served from. Point this at the custom
     // domain you attach to the R2 bucket; stored media URLs are built from it.
     "MEDIA_PUBLIC_URL": "https://media.counter.ltd"

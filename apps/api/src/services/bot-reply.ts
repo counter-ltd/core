@@ -25,14 +25,13 @@ import {
   runWithDb,
   posts,
   users,
-  botCooldowns,
   eq,
   and,
   inArray,
   isNotNull,
   sql,
 } from '@counter/db';
-import { POST, BOT } from '@counter/config';
+import { POST } from '@counter/config';
 import { getGoogleAccessToken } from './google-auth.ts';
 import { syncPostTags, notifyMentions, extractMentions, createNotification } from './content.ts';
 
@@ -114,46 +113,47 @@ export async function handleBotMentions(
  * @param env   Chat endpoint config plus the bots' prompt secrets.
  */
 async function replyToMentions(post: MentioningPost, env: BotReplyEnv): Promise<void> {
-  // Loop guard: a post written by a bot never triggers more bot replies, so two
-  // bots that mention each other cannot ping-pong forever.
+  // Loop guard: a post written by a bot never triggers more bot replies, so a
+  // bot answering in a thread can't set off an endless back-and-forth.
   const author = await db.query.users.findFirst({
     where: eq(users.id, post.userId),
     columns: { username: true, botKind: true },
   });
   if (!author || author.botKind) return;
 
-  const handles = extractMentions(post.body);
-  if (handles.length === 0) return;
+  // Walk the thread above this post once. It serves two jobs: finding the bots
+  // already in the conversation, and the text context to feed them.
+  const thread = await loadThread(post.parentId);
 
-  // Only accounts the server flagged as bots reply. Everyone else just gets the
-  // normal mention notification handled elsewhere.
-  const bots = await db
-    .select({ id: users.id, username: users.username, botKind: users.botKind })
-    .from(users)
-    .where(and(inArray(users.username, handles), isNotNull(users.botKind)));
+  // Bots that should answer: ones tagged in this post, plus ones already taking
+  // part in this thread. A bot in the thread replies to new posts even when it
+  // is not re-tagged, the way a person in a conversation keeps talking.
+  const candidates = new Map<string, BotRef>();
+  for (const b of await mentionedBots(post.body)) candidates.set(b.id, b);
+  for (const t of thread) {
+    if (t.botKind) candidates.set(t.userId, { id: t.userId, username: t.username, botKind: t.botKind });
+  }
+  candidates.delete(post.userId); // never the author of this post
+  if (candidates.size === 0) return;
 
-  if (bots.length === 0) return;
+  // Nearest few thread posts as context, oldest-first, capped for token cost.
+  const context = thread
+    .slice(0, MAX_ANCESTORS)
+    .reverse()
+    .filter((t) => t.body)
+    .map((t) => ({ authorName: t.username, body: t.body.slice(0, MAX_ANCESTOR_CHARS) }));
 
-  // Limited slice of the thread leading to the mention, so the bot is informed
-  // (it can see what it is being dragged into) without us shipping the whole
-  // thread every time. Loaded once and reused for every bot in this post.
-  const ancestors = await loadAncestorChain(post.parentId);
-
-  for (const bot of bots) {
-    // A bot does not answer itself if it somehow ends up in its own mentions.
-    if (bot.id === post.userId || !bot.botKind) continue;
-
+  for (const bot of candidates.values()) {
     const system = promptForBot(bot.botKind, env);
     if (!system) continue;
 
-    // Per-(user, bot) cooldown: skip if this user got a reply from this bot too
-    // recently, and otherwise stamp the cooldown NOW, before the slow model call,
-    // so a rapid burst of mentions can't each slip through the window.
-    if (!(await claimCooldown(post.userId, bot.id))) continue;
+    // Per-reply guard: never answer the same post twice. Replaces a per-user
+    // time cooldown, which would have muted the bot mid-conversation.
+    if (await alreadyReplied(bot.id, post.id)) continue;
 
     try {
-      const context = buildContext(author.username ?? 'someone', post.body, ancestors);
-      const reply = await chat(env, system, context);
+      const prompt = buildContext(author.username ?? 'someone', post.body, context);
+      const reply = await chat(env, system, prompt);
       if (!reply) continue;
       await postReply(bot.id, post, reply);
     } catch (err) {
@@ -163,57 +163,62 @@ async function replyToMentions(post: MentioningPost, env: BotReplyEnv): Promise<
   }
 }
 
-/**
- * Check and claim the cooldown for one (user, bot) pair in a single step.
- *
- * Returns false when the user is still inside the window (skip the reply). When
- * it returns true it has already stamped `lastRepliedAt` to now, so a second
- * mention arriving moments later sees the fresh timestamp and is turned away.
- * The mark happens before the model call deliberately, to close that race.
- *
- * @param userId  The person who mentioned the bot.
- * @param botId   The bot account.
- */
-async function claimCooldown(userId: string, botId: string): Promise<boolean> {
-  const existing = await db.query.botCooldowns.findFirst({
-    where: and(eq(botCooldowns.userId, userId), eq(botCooldowns.botId, botId)),
-  });
-
-  const windowMs = BOT.MENTION_COOLDOWN_SECONDS * 1000;
-  if (existing && Date.now() - existing.lastRepliedAt.getTime() < windowMs) {
-    return false;
-  }
-
-  const now = new Date();
-  await db
-    .insert(botCooldowns)
-    .values({ userId, botId, lastRepliedAt: now })
-    .onConflictDoUpdate({
-      target: [botCooldowns.userId, botCooldowns.botId],
-      set: { lastRepliedAt: now },
-    });
-  return true;
+/** A bot account in the running: its id, handle, and persona key. */
+interface BotRef {
+  id: string;
+  username: string;
+  botKind: string;
 }
 
-/** One post in the thread above the mention, trimmed for the model. */
-interface AncestorPost {
-  authorName: string;
+/**
+ * Resolve the @mentioned handles in a body to the bot accounts among them.
+ *
+ * @param body  The post text.
+ */
+async function mentionedBots(body: string): Promise<BotRef[]> {
+  const handles = extractMentions(body);
+  if (handles.length === 0) return [];
+  const rows = await db
+    .select({ id: users.id, username: users.username, botKind: users.botKind })
+    .from(users)
+    .where(and(inArray(users.username, handles), isNotNull(users.botKind)));
+  return rows.filter((r): r is BotRef => Boolean(r.botKind));
+}
+
+/**
+ * Has this bot already replied to this exact post? The per-reply guard, so a
+ * reprocessed or edited post can't draw a second reply from the same bot.
+ *
+ * @param botId   The bot account.
+ * @param postId  The post the bot might reply to.
+ */
+async function alreadyReplied(botId: string, postId: string): Promise<boolean> {
+  const dup = await db.query.posts.findFirst({
+    where: and(eq(posts.userId, botId), eq(posts.parentId, postId), eq(posts.deleted, false)),
+    columns: { id: true },
+  });
+  return Boolean(dup);
+}
+
+/** One post in the thread above the new post. */
+interface ThreadPost {
+  userId: string;
+  username: string;
+  botKind: string | null;
   body: string;
 }
 
 /**
- * Load up to MAX_ANCESTORS posts above the mention for context, each truncated to
- * MAX_ANCESTOR_CHARS to keep the prompt cheap.
+ * Walk the parent chain above a post, nearest-first, in one recursive CTE.
  *
- * One recursive CTE walks the parent chain and joins each post's author in a
- * single round-trip, rather than a query per level plus a lookup per author.
- * Deleted posts are excluded and stop the walk. Rows come back oldest-first
- * (highest depth) so the model reads the thread in order; a top-level post (no
- * parent) yields an empty array.
+ * Returns up to MAX_THREAD_DEPTH posts (capped against a pathological chain),
+ * each with its author's handle and botKind so the caller can both build context
+ * and spot which bots are already in the thread. Deleted posts are excluded and
+ * stop the walk. A top-level post (no parent) yields an empty array.
  *
- * @param parentId  The mentioning post's parent, or null.
+ * @param parentId  The new post's parent, or null.
  */
-async function loadAncestorChain(parentId: string | null): Promise<AncestorPost[]> {
+async function loadThread(parentId: string | null): Promise<ThreadPost[]> {
   if (!parentId) return [];
 
   const rows = (await db.execute(sql`
@@ -225,29 +230,40 @@ async function loadAncestorChain(parentId: string | null): Promise<AncestorPost[
       SELECT p.id, p.body, p.parent_id, p.user_id, c.depth + 1
       FROM ${posts} p
       JOIN chain c ON p.id = c.parent_id
-      WHERE c.depth < ${MAX_ANCESTORS} AND p.deleted = false
+      WHERE c.depth < 50 AND p.deleted = false
     )
-    SELECT chain.body AS body, u.username AS username
+    SELECT chain.user_id AS user_id, chain.body AS body, u.username AS username, u.bot_kind AS bot_kind
     FROM chain
     JOIN ${users} u ON u.id = chain.user_id
-    ORDER BY chain.depth DESC
-  `)) as unknown as Array<{ body: string | null; username: string | null }>;
+    ORDER BY chain.depth ASC
+  `)) as unknown as Array<{
+    user_id: string;
+    body: string | null;
+    username: string | null;
+    bot_kind: string | null;
+  }>;
 
-  return rows
-    .filter((r) => r.body)
-    .map((r) => ({
-      authorName: r.username ?? 'someone',
-      body: (r.body as string).slice(0, MAX_ANCESTOR_CHARS),
-    }));
+  return rows.map((r) => ({
+    userId: r.user_id,
+    username: r.username ?? 'someone',
+    botKind: r.bot_kind,
+    body: r.body ?? '',
+  }));
+}
+
+/** One thread post as the model sees it for context. */
+interface AncestorPost {
+  authorName: string;
+  body: string;
 }
 
 /**
- * Build the single user turn handed to the model: the thread context (when the
- * mention is a reply) followed by the mention itself.
+ * Build the single user turn handed to the model: the thread context (when there
+ * is one) followed by the post to answer.
  *
- * @param authorName  Handle of the person who mentioned the bot.
- * @param body        The mentioning post's text.
- * @param ancestors   Oldest-first slice of the thread above the mention.
+ * @param authorName  Handle of the person whose post the bot is answering.
+ * @param body        That post's text.
+ * @param ancestors   Oldest-first slice of the thread above it.
  */
 function buildContext(authorName: string, body: string, ancestors: AncestorPost[]): string {
   let lead = '';
@@ -256,7 +272,7 @@ function buildContext(authorName: string, body: string, ancestors: AncestorPost[
     for (const a of ancestors) lead += `@${a.authorName}: "${a.body}"\n`;
     lead += '\n';
   }
-  return `${lead}@${authorName} mentioned you in a post: "${body}"\n\nReply to them.`;
+  return `${lead}@${authorName} just posted: "${body}"\n\nReply to them.`;
 }
 
 /**

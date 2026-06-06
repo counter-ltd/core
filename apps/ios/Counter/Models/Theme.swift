@@ -35,3 +35,37 @@ struct ThemeAuthor: Codable, Hashable, Sendable {
     let id: String
     let username: String
 }
+
+// MARK: - Library
+
+/// The signed-in user's theme library, as returned by `GET /themes/library`.
+///
+/// `created` are themes the user authored (drafts included, since they own
+/// them); `saved` are published themes they kept from someone else's gallery.
+/// Kept as two lists, matching the API, so the UI can label each section
+/// without re-deriving ownership on the client.
+struct ThemeLibrary: Decodable, Sendable {
+    let created: [Theme]
+    let saved: [Theme]
+}
+
+// MARK: - Create
+
+/// Body for `POST /themes`. `published: false` makes a private draft that only
+/// shows in the author's library; `true` publishes it to the public gallery.
+struct CreateThemeInput: Encodable, Sendable {
+    let name: String
+    let description: String?
+    let variables: [String: String]
+    let published: Bool
+}
+
+/// Body for `PATCH /themes/:id` (editing one of your own themes). `description`
+/// is sent as a plain string ("" to clear) rather than nullable, which keeps the
+/// encoding simple since Swift would otherwise drop a nil key.
+struct UpdateThemeInput: Encodable, Sendable {
+    let name: String
+    let description: String
+    let variables: [String: String]
+    let published: Bool
+}

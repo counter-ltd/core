@@ -21,6 +21,20 @@ enum Endpoint {
     case logout(refreshToken: String? = nil)
     /// Hard-deletes the authenticated account.
     case deleteAccount
+    /// Set or change the authenticated account's password (POST /auth/password).
+    case setPassword(currentPassword: String?, newPassword: String)
+    /// Start enrolling a passkey for the signed-in user.
+    case passkeyRegisterOptions
+    /// Finish enrolling a passkey (attestation + optional label).
+    case passkeyRegisterVerify(response: PasskeyRegistrationResponseJSON, nickname: String?)
+    /// Start a passwordless passkey login. Public.
+    case passkeyAuthOptions
+    /// Finish a passwordless passkey login (assertion). Public.
+    case passkeyAuthVerify(response: PasskeyAuthenticationResponseJSON)
+    /// List the signed-in user's registered passkeys.
+    case passkeys
+    /// Remove one of the signed-in user's passkeys.
+    case deletePasskey(id: String)
     /// Register or upsert the E2EE key for one device (POST /auth/keys).
     case registerPublicKey(deviceId: String, publicKey: String)
     /// List all device keys registered for the authenticated account (GET /auth/keys).
@@ -93,6 +107,16 @@ enum Endpoint {
     case themes(after: String? = nil)
     /// A single theme by ID (published or, with a direct link, a draft).
     case theme(id: String)
+    /// The signed-in user's library: themes they created plus ones they saved.
+    case themeLibrary
+    /// Create a theme owned by the caller. `published: false` makes a draft.
+    case createTheme(name: String, description: String?, variables: [String: String], published: Bool)
+    /// Edit one of the caller's own themes (partial update, sent in full here).
+    case updateTheme(id: String, name: String, description: String, variables: [String: String], published: Bool)
+    /// Save a published theme into the caller's library.
+    case saveTheme(id: String)
+    /// Remove a theme from the caller's library.
+    case unsaveTheme(id: String)
 
     // MARK: Messages
 
@@ -226,24 +250,29 @@ extension Endpoint {
         case .login, .register, .logout, .createPost, .createReply, .createTopic,
              .like, .repost, .follow, .joinTopic, .sendMessage,
              .markNotificationRead, .markConversationRead, .acceptRequest, .refresh, .registerDevice,
-             .registerPublicKey, .reportScreenshot, .heartbeat,
+             .registerPublicKey, .reportScreenshot, .heartbeat, .setPassword,
+             .passkeyRegisterOptions, .passkeyRegisterVerify, .passkeyAuthOptions, .passkeyAuthVerify,
              .tunnelInvite, .tunnelAccept, .tunnelDecline, .tunnelTranscript,
              .createReport, .adminAssignGroup, .adminBanUser, .adminUnbanUser,
              .adminSuspendUser, .adminUnsuspendUser, .adminCreateGroup,
-             .adminRestorePost, .adminResolveReport:
+             .adminRestorePost, .adminResolveReport,
+             .createTheme, .saveTheme:
             return "POST"
-        case .updateProfile, .updatePost, .patchIntegration, .adminUpdateGroup:
+        case .updateProfile, .updatePost, .patchIntegration, .adminUpdateGroup, .updateTheme:
             return "PATCH"
         case .updateNotificationPreferences, .updatePresenceSettings,
              .updateDiscordBotSettings,
              .tunnelConsentOn:
             return "PUT"
+        case .deletePasskey:
+            return "DELETE"
         case .deleteAccount, .deletePost, .unlike, .unrepost, .unfollow, .leaveTopic,
              .unregisterDevice, .deleteDevice,
              .clearConversation, .deleteConversation,
              .oauthDisconnect,
              .tunnelEnd, .tunnelConsentOff,
-             .adminRemoveGroup, .adminDeleteGroup, .adminRemovePost, .adminNukePost:
+             .adminRemoveGroup, .adminDeleteGroup, .adminRemovePost, .adminNukePost,
+             .unsaveTheme:
             return "DELETE"
         case .oauthExchangeCode, .oauthConnectPrepare:
             return "POST"
@@ -259,6 +288,13 @@ extension Endpoint {
         case .refresh:                     return "/auth/refresh"
         case .logout:                      return "/auth/logout"
         case .deleteAccount:               return "/auth/account"
+        case .setPassword:                 return "/auth/password"
+        case .passkeyRegisterOptions:      return "/auth/passkeys/register/options"
+        case .passkeyRegisterVerify:       return "/auth/passkeys/register/verify"
+        case .passkeyAuthOptions:          return "/auth/passkeys/authenticate/options"
+        case .passkeyAuthVerify:           return "/auth/passkeys/authenticate/verify"
+        case .passkeys:                    return "/auth/passkeys"
+        case .deletePasskey(let id):       return "/auth/passkeys/\(id)"
         case .me:                          return "/users/me"
         case .updateProfile:               return "/users/me"
         case .presenceSettings:            return "/users/me/presence"
@@ -301,7 +337,12 @@ extension Endpoint {
         case .joinTopic(let slug):         return "/topics/\(slug)/join"
         case .leaveTopic(let slug):        return "/topics/\(slug)/join"
         case .themes:                      return "/themes"
+        case .themeLibrary:                return "/themes/library"
+        case .createTheme:                 return "/themes"
         case .theme(let id):               return "/themes/\(id)"
+        case .updateTheme(let id, _, _, _, _): return "/themes/\(id)"
+        case .saveTheme(let id):           return "/themes/\(id)/save"
+        case .unsaveTheme(let id):         return "/themes/\(id)/save"
         case .messagesInbox:               return "/messages"
         case .conversation(let u, _):      return "/messages/\(u)"
         case .conversationInfo(let u):     return "/messages/\(u)/info"
@@ -415,10 +456,20 @@ extension Endpoint {
             return try? encoder.encode(UpdatePostInput(body: body))
         case .createTopic(let slug, let name, let description):
             return try? encoder.encode(CreateTopicInput(slug: slug, name: name, description: description))
+        case .createTheme(let name, let description, let variables, let published):
+            return try? encoder.encode(CreateThemeInput(name: name, description: description, variables: variables, published: published))
+        case .updateTheme(_, let name, let description, let variables, let published):
+            return try? encoder.encode(UpdateThemeInput(name: name, description: description, variables: variables, published: published))
         case .sendMessage(_, let body):
             return try? encoder.encode(SendMessageInput(body: body))
         case .registerPublicKey(let did, let key):
             return try? encoder.encode(RegisterPublicKeyInput(deviceId: did, publicKey: key))
+        case .setPassword(let current, let new):
+            return try? encoder.encode(SetPasswordInput(currentPassword: current, newPassword: new))
+        case .passkeyRegisterVerify(let response, let nickname):
+            return try? encoder.encode(PasskeyRegisterVerifyBody(response: response, nickname: nickname))
+        case .passkeyAuthVerify(let response):
+            return try? encoder.encode(PasskeyAuthVerifyBody(response: response))
         case .updateNotificationPreferences(let prefs):
             return try? encoder.encode(prefs)
         case .updatePresenceSettings(let settings):
@@ -458,7 +509,8 @@ extension Endpoint {
     /// True for endpoints that require an Authorization header.
     var requiresAuth: Bool {
         switch self {
-        case .me, .updateProfile, .deleteAccount,
+        case .me, .updateProfile, .deleteAccount, .setPassword,
+             .passkeyRegisterOptions, .passkeyRegisterVerify, .passkeys, .deletePasskey,
              .presenceSettings, .updatePresenceSettings, .heartbeat,
              .authenticatedFeed, .createPost, .createReply, .updatePost, .deletePost,
              .like, .unlike, .repost, .unrepost,
@@ -478,7 +530,8 @@ extension Endpoint {
              .adminRemoveGroup, .adminBanUser, .adminUnbanUser, .adminSuspendUser,
              .adminUnsuspendUser, .adminGroups, .adminCreateGroup, .adminUpdateGroup,
              .adminDeleteGroup, .adminRemovePost, .adminRestorePost, .adminNukePost, .adminReports,
-             .adminResolveReport, .adminAudit:
+             .adminResolveReport, .adminAudit,
+             .themeLibrary, .createTheme, .updateTheme, .saveTheme, .unsaveTheme:
             return true
         default:
             return false

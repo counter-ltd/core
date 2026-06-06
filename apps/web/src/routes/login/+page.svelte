@@ -14,9 +14,51 @@
   import { enhance } from '$app/forms';
   import { page } from '$app/state';
   import { env } from '$env/dynamic/public';
+  import { startAuthentication } from '@simplewebauthn/browser';
   let { form } = $props();
 
   const apiUrl = env.PUBLIC_API_URL || 'http://localhost:3000';
+
+  // Passkey sign-in error, shown inline. Separate from `form.error` (the
+  // password form) since this flow never round-trips through a form action.
+  let passkeyError = $state('');
+  let passkeyBusy = $state(false);
+
+  /**
+   * Run the WebAuthn assertion in the browser, then hand it to our server
+   * endpoint to exchange for a session. The ceremony must happen client-side
+   * (only the browser can reach the authenticator); the cookie-setting must
+   * happen server-side, hence the two-step handoff.
+   */
+  async function signInWithPasskey() {
+    passkeyError = '';
+    passkeyBusy = true;
+    try {
+      const optionsRes = await fetch(`${apiUrl}/auth/passkeys/authenticate/options`, {
+        method: 'POST',
+      });
+      if (!optionsRes.ok) throw new Error('Could not start passkey sign-in.');
+      const options = await optionsRes.json();
+
+      const assertion = await startAuthentication({ optionsJSON: options });
+
+      const verifyRes = await fetch('/login/passkey', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(assertion),
+      });
+      if (!verifyRes.ok) {
+        const data = await verifyRes.json().catch(() => null);
+        throw new Error(data?.error ?? 'Passkey sign-in failed.');
+      }
+      // Server set the session cookie on the response; go to the feed.
+      window.location.assign('/feed');
+    } catch (err) {
+      // A user cancelling the native prompt throws too; keep the copy gentle.
+      passkeyError = err instanceof Error ? err.message : 'Passkey sign-in failed.';
+      passkeyBusy = false;
+    }
+  }
 
   // After an account is deleted the server bounces here with ?deleted=1. The
   // license (Condition 6) requires confirming the deletion to the user in
@@ -54,6 +96,13 @@
   <div class="divider"><span>or</span></div>
 
   <div class="oauth">
+    <button type="button" class="btn btn-oauth" onclick={signInWithPasskey} disabled={passkeyBusy}>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+        <path d="M10.5 1a3.5 3.5 0 00-1.5 6.66V8L8 9l1 1-1 1 1 1-1.5 1.5L8 15l1.25-1.25V7.66A3.5 3.5 0 0010.5 1zm0 2.25a1.25 1.25 0 110 2.5 1.25 1.25 0 010-2.5z"/>
+      </svg>
+      {passkeyBusy ? 'Waiting for passkey…' : 'Sign in with a passkey'}
+    </button>
+    {#if passkeyError}<p class="error">{passkeyError}</p>{/if}
     <a href="{apiUrl}/auth/github" class="btn btn-oauth">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
         <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>

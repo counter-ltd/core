@@ -85,6 +85,14 @@ struct LoginView: View {
                         }
                         .counterSecondaryButton()
                         .disabled(vm.isLoading)
+
+                        Button {
+                            Task { await vm.signInWithPasskey() }
+                        } label: {
+                            Label("Sign in with a passkey", systemImage: "person.badge.key")
+                        }
+                        .counterSecondaryButton()
+                        .disabled(vm.isLoading)
                     }
                     .padding(.horizontal, CounterSpacing.xl)
 

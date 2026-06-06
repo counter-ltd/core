@@ -15,6 +15,7 @@
 		AABBCC000000000000000206 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000106 /* KeychainStore.swift */; };
 		AABBCC000000000000000207 /* TokenRefreshActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000107 /* TokenRefreshActor.swift */; };
 		AABBCC000000000000000208 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000108 /* AuthStore.swift */; };
+		AABBCC00000000000000031A /* PasskeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000319 /* PasskeyManager.swift */; };
 		AABBCC000000000000000302 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = AABBCC000000000000000301 /* WebRTC */; };
 		AABBCC000000000000000304 /* WebRTCPeer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000303 /* WebRTCPeer.swift */; };
 		AABBCC000000000000000307 /* ConversationLiveClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000306 /* ConversationLiveClient.swift */; };
@@ -78,6 +79,7 @@
 		AABBCC000000000000000248 /* PresenceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000245 /* PresenceSettings.swift */; };
 		AABBCC000000000000000249 /* PresenceSettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000246 /* PresenceSettingsViewModel.swift */; };
 		AABBCC00000000000000024A /* PresenceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000247 /* PresenceSettingsView.swift */; };
+		AABBCC000000000000000318 /* SecuritySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000317 /* SecuritySettingsView.swift */; };
 		AABBCC000000000000000311 /* Admin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000310 /* Admin.swift */; };
 		AABBCC000000000000000313 /* AdminViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000312 /* AdminViewModel.swift */; };
 		AABBCC000000000000000315 /* AdminView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000314 /* AdminView.swift */; };
@@ -85,6 +87,7 @@
 		AABBCC00000000000000023C /* ThemeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000013C /* ThemeStore.swift */; };
 		AABBCC00000000000000023D /* ThemeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000013D /* ThemeSettingsView.swift */; };
 		AABBCC00000000000000023E /* ThemeGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC00000000000000013E /* ThemeGalleryView.swift */; };
+		AABBCC0000000000000009F2 /* ThemeCreateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC0000000000000009F1 /* ThemeCreateView.swift */; };
 		AABBCC0000000000000000F3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AABBCC0000000000000000F1 /* Assets.xcassets */; };
 		AABBCC000000000000000254 /* ProfileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000251 /* ProfileSettingsView.swift */; };
 		AABBCC000000000000000255 /* NotificationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000252 /* NotificationSettingsView.swift */; };
@@ -109,6 +112,7 @@
 		AABBCC000000000000000106 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000107 /* TokenRefreshActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenRefreshActor.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000108 /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStore.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000319 /* PasskeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasskeyManager.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000109 /* AccountStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountStore.swift; sourceTree = "<group>"; };
 		AABBCC00000000000000010A /* Pagination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pagination.swift; sourceTree = "<group>"; };
 		AABBCC00000000000000010B /* Auth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Auth.swift; sourceTree = "<group>"; };
@@ -170,11 +174,13 @@
 		AABBCC00000000000000013C /* ThemeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeStore.swift; sourceTree = "<group>"; };
 		AABBCC00000000000000013D /* ThemeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeSettingsView.swift; sourceTree = "<group>"; };
 		AABBCC00000000000000013E /* ThemeGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeGalleryView.swift; sourceTree = "<group>"; };
+		AABBCC0000000000000009F1 /* ThemeCreateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeCreateView.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000241 /* DevicesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesViewModel.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000242 /* DevicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesView.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000245 /* PresenceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceSettings.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000246 /* PresenceSettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceSettingsViewModel.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000247 /* PresenceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceSettingsView.swift; sourceTree = "<group>"; };
+		AABBCC000000000000000317 /* SecuritySettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecuritySettingsView.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000251 /* ProfileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSettingsView.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000252 /* NotificationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsView.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000253 /* ConnectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsView.swift; sourceTree = "<group>"; };
@@ -262,6 +268,7 @@
 				AABBCC000000000000000106 /* KeychainStore.swift */,
 				AABBCC000000000000000107 /* TokenRefreshActor.swift */,
 				AABBCC000000000000000108 /* AuthStore.swift */,
+				AABBCC000000000000000319 /* PasskeyManager.swift */,
 				AABBCC000000000000000109 /* AccountStore.swift */,
 			);
 			path = Auth;
@@ -423,8 +430,10 @@
 				AABBCC00000000000000012B /* SettingsView.swift */,
 				AABBCC00000000000000013D /* ThemeSettingsView.swift */,
 				AABBCC00000000000000013E /* ThemeGalleryView.swift */,
+				AABBCC0000000000000009F1 /* ThemeCreateView.swift */,
 				AABBCC000000000000000242 /* DevicesView.swift */,
 				AABBCC000000000000000247 /* PresenceSettingsView.swift */,
+				AABBCC000000000000000317 /* SecuritySettingsView.swift */,
 				AABBCC000000000000000251 /* ProfileSettingsView.swift */,
 				AABBCC000000000000000252 /* NotificationSettingsView.swift */,
 				AABBCC000000000000000253 /* ConnectionsView.swift */,
@@ -565,6 +574,7 @@
 				AABBCC000000000000000206 /* KeychainStore.swift in Sources */,
 				AABBCC000000000000000207 /* TokenRefreshActor.swift in Sources */,
 				AABBCC000000000000000208 /* AuthStore.swift in Sources */,
+				AABBCC00000000000000031A /* PasskeyManager.swift in Sources */,
 				AABBCC000000000000000209 /* AccountStore.swift in Sources */,
 				AABBCC00000000000000020A /* Pagination.swift in Sources */,
 				AABBCC00000000000000020B /* Auth.swift in Sources */,
@@ -624,11 +634,13 @@
 				AABBCC00000000000000023C /* ThemeStore.swift in Sources */,
 				AABBCC00000000000000023D /* ThemeSettingsView.swift in Sources */,
 				AABBCC00000000000000023E /* ThemeGalleryView.swift in Sources */,
+				AABBCC0000000000000009F2 /* ThemeCreateView.swift in Sources */,
 				AABBCC000000000000000243 /* DevicesViewModel.swift in Sources */,
 				AABBCC000000000000000244 /* DevicesView.swift in Sources */,
 				AABBCC000000000000000248 /* PresenceSettings.swift in Sources */,
 				AABBCC000000000000000249 /* PresenceSettingsViewModel.swift in Sources */,
 				AABBCC00000000000000024A /* PresenceSettingsView.swift in Sources */,
+				AABBCC000000000000000318 /* SecuritySettingsView.swift in Sources */,
 				AABBCC000000000000000254 /* ProfileSettingsView.swift in Sources */,
 				AABBCC000000000000000255 /* NotificationSettingsView.swift in Sources */,
 				AABBCC000000000000000256 /* ConnectionsView.swift in Sources */,

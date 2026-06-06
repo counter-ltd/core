@@ -51,13 +51,28 @@
 
   type ConnectionState = 'connecting' | 'connected' | 'ended' | 'error';
 
+  // More specific label shown inside the "Connecting…" badge so the user can
+  // tell whether the hang is in signaling or ICE negotiation.
+  type ConnectingStage = 'relay' | 'waiting' | 'linking';
+  const CONNECTING_LABEL: Record<ConnectingStage, string> = {
+    relay:   'Connecting to relay…',
+    waiting: `Waiting for @${partnerUsername}…`,
+    linking: 'Establishing link…',
+  };
+
   let connState: ConnectionState = $state('connecting');
+  let connectingStage: ConnectingStage = $state('relay');
   let messages: TunnelChatMessage[] = $state([]);
   let draft = $state('');
   let myConsent = $state(false);
   let partnerConsent = $state(false);
   let errorMsg: string | null = $state(null);
   let listEl: HTMLElement;
+
+  // If we haven't connected within 30 s, surface an error rather than hanging.
+  let connectTimeout: ReturnType<typeof setTimeout> | null = null;
+  // Sub-step label updated by TunnelPeer as ICE negotiation progresses.
+  let iceDetail = $state<string | null>(null);
 
   let signaling: TunnelSignaling | null = null;
   let peer: TunnelPeer | null = null;
@@ -67,6 +82,13 @@
   const pendingSignals: SignalingMessage[] = [];
 
   onMount(async () => {
+    connectTimeout = setTimeout(() => {
+      if (connState === 'connecting') {
+        connState = 'error';
+        errorMsg = 'Could not establish a connection. Check your network and try again.';
+      }
+    }, 30_000);
+
     try {
       await setup();
     } catch (e) {
@@ -76,6 +98,7 @@
   });
 
   onDestroy(() => {
+    if (connectTimeout) clearTimeout(connectTimeout);
     signaling?.close();
     peer?.end();
   });
@@ -105,9 +128,19 @@
     });
 
     peer.onConnected = () => {
+      if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
       connState = 'connected';
       // Once P2P is up the signaling relay is no longer needed.
       signaling?.close();
+    };
+
+    peer.onConnectionFailed = () => {
+      connState = 'error';
+      errorMsg = 'Peer-to-peer connection failed. A firewall or strict NAT may be blocking the link.';
+    };
+
+    peer.onIceStatus = (label) => {
+      iceDetail = label;
     };
 
     peer.onDisconnected = () => {
@@ -141,6 +174,7 @@
 
     // Open the signaling WebSocket after the peer is wired up so no signals
     // are dropped between creating the peer and attaching the handler.
+    connectingStage = 'waiting';
     signaling = new TunnelSignaling(sessionId, accessToken);
 
     signaling.onSignal = (msg) => {
@@ -152,8 +186,9 @@
     };
 
     signaling.onPeerJoined = async () => {
-      // Both peers connected to the signaling DO. The initiator creates the
-      // offer; the participant waits for it to arrive via onSignal.
+      // Both peers are on the signaling relay — ICE negotiation starts now.
+      connectingStage = 'linking';
+      // The initiator creates the offer; the participant waits for it via onSignal.
       if (isInitiator && peer) {
         const offer = await peer.createOffer();
         signaling?.send({ type: 'offer', sdp: offer.sdp ?? '' });
@@ -250,7 +285,12 @@
       <div class="tunnel-partner">
         <span class="mono">@{partnerUsername}</span>
         {#if connState === 'connecting'}
-          <span class="status-badge connecting">Connecting…</span>
+          <span class="status-badge connecting">
+            {CONNECTING_LABEL[connectingStage]}
+            {#if connectingStage === 'linking' && iceDetail}
+              <span class="ice-detail">{iceDetail}</span>
+            {/if}
+          </span>
         {:else if connState === 'connected'}
           <span class="status-badge connected">● P2P</span>
         {:else if connState === 'ended'}
@@ -377,7 +417,18 @@
     border-radius: 999px;
     font-weight: 500;
   }
-  .status-badge.connecting { background: var(--color-border); color: var(--color-text-dim); }
+  .status-badge.connecting {
+    background: var(--color-border);
+    color: var(--color-text-dim);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+  .ice-detail {
+    font-size: 0.65rem;
+    opacity: 0.75;
+  }
   .status-badge.connected  { background: #14532d; color: #4ade80; }
   .status-badge.ended      { background: var(--color-border); color: var(--color-text-dim); }
   .status-badge.error      { background: #450a0a; color: #f87171; }

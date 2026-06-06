@@ -58,7 +58,7 @@ struct ThemeSettingsView: View {
                 ThemeGalleryView()
             } label: {
                 HStack {
-                    Text("Browse themes")
+                    Text("Themes")
                         .font(CounterFont.body(14))
                         .foregroundStyle(theme.text)
                     Spacer()

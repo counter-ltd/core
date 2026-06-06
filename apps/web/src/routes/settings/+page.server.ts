@@ -23,6 +23,7 @@ import type {
   OAuthConnectedAccount,
   OAuthConnectPrepareResponse,
   DiscordBotSettings,
+  PasskeySummary,
 } from '@counter/types';
 
 // Default every type on, so a failed fetch still renders a sensible panel rather
@@ -47,7 +48,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
   if (!locals.user) throw redirect(303, '/login');
   // Profile form is pre-filled from the session user. Everything else needs a
   // fetch; all run in parallel and fall back to safe defaults on failure.
-  const [links, prefs, devicesRes, presenceRes, githubRes, discordRes, discordBotRes, vapidRes] =
+  const [links, prefs, devicesRes, presenceRes, githubRes, discordRes, discordBotRes, vapidRes, passkeysRes] =
     await Promise.all([
       apiFetch<Integration[]>('/integrations/me', { token: locals.accessToken, fetch }),
       apiFetch<NotificationPreferences>('/notifications/preferences', {
@@ -66,6 +67,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
         token: locals.accessToken,
         fetch,
       }),
+      apiFetch<PasskeySummary[]>('/auth/passkeys', { token: locals.accessToken, fetch }),
     ]);
   return {
     profile: locals.user,
@@ -79,6 +81,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
       ? discordBotRes.data
       : { enabled: false, inGuild: false, guildCheckedAt: null, postingEnabled: false },
     vapidPublicKey: vapidRes.ok ? vapidRes.data.key : null,
+    passkeys: passkeysRes.ok ? passkeysRes.data : [],
   };
 };
 
@@ -192,6 +195,52 @@ export const actions: Actions = {
     });
     if (!res.ok) return fail(res.status, { pushError: res.error?.message ?? 'Could not disable notifications.' });
     return { pushDisabled: true };
+  },
+
+  // Set or change the account password. The current-password field is only sent
+  // (and only required) when the account already has one; an OAuth-only account
+  // setting its first password leaves it empty. The API decides which rule
+  // applies, so we just forward whatever the form gives us.
+  setPassword: async ({ request, locals }) => {
+    if (!locals.accessToken) throw redirect(303, '/login');
+    const form = await request.formData();
+    const currentPassword = String(form.get('currentPassword') ?? '');
+    const body: Record<string, unknown> = {
+      newPassword: String(form.get('newPassword') ?? ''),
+    };
+    if (currentPassword) body.currentPassword = currentPassword;
+    const res = await apiFetch('/auth/password', {
+      method: 'POST',
+      token: locals.accessToken,
+      body,
+    });
+    if (!res.ok) return fail(res.status, { passwordError: res.error?.message ?? 'Could not save.' });
+    return { passwordSaved: true };
+  },
+
+  // Relabel a passkey. The add flow runs through the /settings/passkeys endpoint
+  // (it needs the browser-side ceremony in the middle); rename and remove are
+  // plain form posts, like deleteDevice.
+  renamePasskey: async ({ request, locals }) => {
+    if (!locals.accessToken) throw redirect(303, '/login');
+    const form = await request.formData();
+    const id = String(form.get('id') ?? '');
+    const nickname = String(form.get('nickname') ?? '').trim();
+    const res = await apiFetch(`/auth/passkeys/${id}`, {
+      method: 'PATCH',
+      token: locals.accessToken,
+      body: { nickname },
+    });
+    if (!res.ok) return fail(res.status, { passkeyError: res.error?.message ?? 'Could not rename.' });
+    return { passkeyRenamed: true };
+  },
+
+  removePasskey: async ({ request, locals }) => {
+    if (!locals.accessToken) throw redirect(303, '/login');
+    const form = await request.formData();
+    const id = String(form.get('id') ?? '');
+    await apiFetch(`/auth/passkeys/${id}`, { method: 'DELETE', token: locals.accessToken });
+    return { passkeyRemoved: true };
   },
 
   resendVerification: async ({ locals }) => {

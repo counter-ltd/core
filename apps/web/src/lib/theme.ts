@@ -18,6 +18,49 @@ export const THEME_STORAGE_KEY = 'counter:theme';
 export const MODE_STORAGE_KEY = 'counter:mode';
 
 /**
+ * The colour tokens the Create editor lets a user set, in display order.
+ *
+ * One entry per editable `--color-*` custom property: the variable it drives, a
+ * human label for the form field, and the dark-theme default (lifted straight
+ * from `:root` in app.css) so a fresh theme opens on the current look rather
+ * than black. This is the single source of truth for both the editor inputs and
+ * the server action that maps the submitted colours back onto their variables.
+ */
+export const THEME_COLOR_TOKENS = [
+  { key: '--color-bg', label: 'Background', default: '#0c0c0d' },
+  { key: '--color-bg-2', label: 'Background 2', default: '#161619' },
+  { key: '--color-surface', label: 'Surface', default: '#121214' },
+  { key: '--color-surface-strong', label: 'Surface strong', default: '#1c1c21' },
+  { key: '--color-border', label: 'Border', default: '#2b2b31' },
+  { key: '--color-border-bright', label: 'Border bright', default: '#45454d' },
+  { key: '--color-text', label: 'Text', default: '#e8e8ea' },
+  { key: '--color-text-dim', label: 'Text dim', default: '#97979e' },
+  { key: '--color-text-faint', label: 'Text faint', default: '#64646b' },
+  { key: '--color-accent', label: 'Accent', default: '#e0a23c' },
+  { key: '--color-accent-2', label: 'Accent 2', default: '#6fae8f' },
+  { key: '--color-accent-contrast', label: 'Accent contrast', default: '#0c0c0d' },
+  { key: '--color-like', label: 'Like', default: '#e5577d' },
+  { key: '--color-repost', label: 'Repost', default: '#4fb98a' },
+  { key: '--color-danger', label: 'Danger', default: '#e5484d' },
+] as const;
+
+/**
+ * Build an inline `style` string of CSS variable declarations from a colour map.
+ *
+ * The Create preview sets these on a wrapper element rather than the document
+ * root, so the example post recolours live while the rest of the page (and the
+ * editor chrome itself) stays on the real theme. Same structural guard as
+ * {@link applyTheme}: skip any key or value that could break out of the
+ * declaration, so a half-typed colour can never inject extra CSS.
+ */
+export function previewVars(map: Record<string, string>): string {
+  return Object.entries(map)
+    .filter(([key, value]) => /^--[a-z0-9-]+$/i.test(key) && !/[;{}<>]/.test(value))
+    .map(([key, value]) => `${key}:${value}`)
+    .join(';');
+}
+
+/**
  * Apply a theme's variable overrides to the document root, replacing whatever
  * theme was applied before.
  *

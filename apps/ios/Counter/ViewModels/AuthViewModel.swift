@@ -132,6 +132,40 @@ final class AuthViewModel {
         }
     }
 
+    // Retained for the lifetime of one passkey ceremony; ASAuthorizationController
+    // keeps only weak references to its delegate.
+    private var passkeyManager: PasskeyManager?
+
+    /// Sign in with a passkey. Fetches a challenge, runs the system assertion
+    /// sheet, then exchanges the signed assertion for a session. A cancelled
+    /// sheet is silent; anything else surfaces a message.
+    func signInWithPasskey() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        let optionsResult: APIResult<PasskeyAuthenticationOptions> =
+            await env.apiClient.request(.passkeyAuthOptions)
+        guard case .success(let options) = optionsResult else {
+            errorMessage = optionsResult.errorMessage
+            return
+        }
+
+        let manager = PasskeyManager()
+        passkeyManager = manager
+        do {
+            let assertion = try await manager.authenticate(options: options)
+            let result: APIResult<AuthResponse> = await env.apiClient.request(
+                .passkeyAuthVerify(response: assertion),
+            )
+            handle(result)
+        } catch {
+            if !PasskeyError.isCancellation(error) {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
     private func handle(_ result: APIResult<AuthResponse>) {
         switch result {
         case .success(let auth):

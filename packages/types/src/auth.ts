@@ -60,6 +60,21 @@ export const confirmPasswordResetSchema = z.object({
 export type ConfirmPasswordResetInput = z.infer<typeof confirmPasswordResetSchema>;
 
 /**
+ * Body for `POST /auth/password`: set or change the signed-in user's password.
+ *
+ * `currentPassword` is optional in the schema but the endpoint requires it when
+ * the account already has a password. OAuth-only accounts (passwordHash null)
+ * are setting one for the first time, so they have nothing to prove and send
+ * just the new password. Bounds match registration so this path can't slip a
+ * weaker password past the signup rules.
+ */
+export const setPasswordSchema = z.object({
+  currentPassword: z.string().min(1).optional(),
+  newPassword: z.string().min(USER.MIN_PASSWORD_LENGTH).max(USER.MAX_PASSWORD_LENGTH),
+});
+export type SetPasswordInput = z.infer<typeof setPasswordSchema>;
+
+/**
  * Body for `POST /admin/users/:id/password-reset`: how the admin wants the reset
  * delivered. `email` mails the user the link; `link` returns the URL in the
  * response for the admin to hand over some other way (useful when the account's
@@ -69,6 +84,46 @@ export const adminPasswordResetSchema = z.object({
   delivery: z.enum(['email', 'link']),
 });
 export type AdminPasswordResetInput = z.infer<typeof adminPasswordResetSchema>;
+
+// --- passkeys (WebAuthn) ---
+
+/**
+ * Body for `POST /auth/passkeys/register/verify`: the browser's attestation plus
+ * an optional label. `response` is the `RegistrationResponseJSON` that
+ * `@simplewebauthn/browser` produces; it's left loose here because the server
+ * library does the real structural validation, and mirroring the full WebAuthn
+ * JSON in zod would be brittle.
+ */
+export const passkeyRegisterVerifySchema = z.object({
+  response: z.record(z.unknown()),
+  nickname: z.string().max(64).optional(),
+});
+export type PasskeyRegisterVerifyInput = z.infer<typeof passkeyRegisterVerifySchema>;
+
+/**
+ * Body for `POST /auth/passkeys/authenticate/verify`: the browser's assertion
+ * (`AuthenticationResponseJSON`). Loose for the same reason as registration.
+ */
+export const passkeyAuthVerifySchema = z.object({
+  response: z.record(z.unknown()),
+});
+export type PasskeyAuthVerifyInput = z.infer<typeof passkeyAuthVerifySchema>;
+
+/** Body for `PATCH /auth/passkeys/:id`: relabel a saved passkey. */
+export const passkeyRenameSchema = z.object({
+  nickname: z.string().min(1).max(64),
+});
+export type PasskeyRenameInput = z.infer<typeof passkeyRenameSchema>;
+
+/** A registered passkey as shown in account settings. Never carries key material. */
+export interface PasskeySummary {
+  id: string;
+  nickname: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  /** 'singleDevice' | 'multiDevice' backup eligibility, or null when unknown. */
+  deviceType: string | null;
+}
 
 /** The two tokens minted on login, plus when the access token expires. */
 export interface TokenPair {

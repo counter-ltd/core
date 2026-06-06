@@ -45,6 +45,25 @@ struct LogoutInput: Encodable, Sendable {
     let refreshToken: String?
 }
 
+/// Body for POST /auth/password: set or change the signed-in user's password.
+struct SetPasswordInput: Encodable, Sendable {
+    /// Omitted entirely when the account has no password yet. The API's schema
+    /// treats the field as optional-or-absent, so a null would fail validation;
+    /// encode the key only when there's a value.
+    let currentPassword: String?
+    let newPassword: String
+
+    enum CodingKeys: String, CodingKey {
+        case currentPassword, newPassword
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(newPassword, forKey: .newPassword)
+        if let currentPassword { try c.encode(currentPassword, forKey: .currentPassword) }
+    }
+}
+
 // MARK: - OAuth
 
 /// The two OAuth providers Counter supports.

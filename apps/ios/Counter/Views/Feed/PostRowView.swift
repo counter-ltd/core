@@ -135,53 +135,18 @@ struct PostRowView: View {
 
     // MARK: - Reply previews
 
+    // The inline thread preview below a post. Each top-level reply (and anything
+    // nested under it) is a ReplyPreviewRow, sharing the same horizontal padding
+    // as the main post so the connector lines up under the main avatar.
     @ViewBuilder
     private var topRepliesSection: some View {
         VStack(spacing: 0) {
             ForEach(Array(topReplies.enumerated()), id: \.element.id) { idx, reply in
-                replyRow(reply, isLast: idx == topReplies.count - 1)
+                ReplyPreviewRow(reply: reply, hasFollowing: idx < topReplies.count - 1)
             }
-        }
-    }
-
-    private func replyRow(_ reply: Post, isLast: Bool) -> some View {
-        HStack(alignment: .top, spacing: CounterSpacing.md) {
-            // Avatar column continues the thread line between replies.
-            VStack(spacing: 0) {
-                NavigationLink(value: AppDestination.profile(username: reply.author.username)) {
-                    AvatarView(user: reply.author, size: 28)
-                }
-                .buttonStyle(.plain)
-                .padding(.top, CounterSpacing.xs)
-
-                if !isLast {
-                    threadConnector
-                }
-            }
-            .frame(width: 40)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(reply.author.displayName ?? reply.author.username)
-                    .font(CounterFont.body(13))
-                    .fontWeight(.semibold)
-                    .foregroundStyle(theme.text)
-
-                if !reply.deleted, let body = reply.body {
-                    Text(body)
-                        .font(CounterFont.body(13))
-                        .foregroundStyle(theme.textDim)
-                        .lineLimit(2)
-                } else if reply.deleted {
-                    Text("This post was deleted.")
-                        .font(CounterFont.body(13))
-                        .foregroundStyle(theme.textDim)
-                        .italic()
-                }
-            }
-            .padding(.top, CounterSpacing.sm)
-            .padding(.bottom, isLast ? CounterSpacing.md : CounterSpacing.xs)
         }
         .padding(.horizontal, CounterSpacing.lg)
+        .padding(.bottom, CounterSpacing.md)
     }
 
     // MARK: - Subviews
@@ -283,5 +248,101 @@ struct PostRowView: View {
     private func handleInternalURL(_ url: URL) {
         // counter://profile/username and counter://tag/name are synthetic
         // schemes produced by linkify(). Real external URLs open in Safari.
+    }
+}
+
+/**
+ One reply inside a post's inline thread preview, plus whatever reply it itself
+ drew. The view recurses through `reply.topReplies`, so a reply-to-a-reply
+ renders threaded under its parent, the same shape the web preview shows.
+
+ The avatar sits in a fixed-width column with a connector line down its centre.
+ The line runs the full height of the row, so when a reply has nested replies it
+ traces down their left edge and the whole branch reads as one thread.
+ */
+private struct ReplyPreviewRow: View {
+    @Environment(\.counterTheme) private var theme
+    let reply: Post
+
+    // True when another reply follows this one at the same level, so the
+    // connector should keep going down to meet that next avatar. A leaf with no
+    // sibling and no children draws no line and ends the branch cleanly.
+    let hasFollowing: Bool
+
+    private var children: [Post] { reply.topReplies ?? [] }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: CounterSpacing.md) {
+            VStack(spacing: 0) {
+                NavigationLink(value: AppDestination.profile(username: reply.author.username)) {
+                    AvatarView(user: reply.author, size: 28)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, CounterSpacing.xs)
+
+                if hasFollowing || !children.isEmpty {
+                    Capsule()
+                        .fill(theme.textDim.opacity(0.25))
+                        .frame(width: 2)
+                        .frame(maxHeight: .infinity)
+                        .padding(.top, CounterSpacing.xs)
+                }
+            }
+            // Matches the main post's avatar column, so a 28pt reply avatar
+            // centres on the same x as the 40pt post avatar and the lines align.
+            .frame(width: 40)
+
+            VStack(alignment: .leading, spacing: CounterSpacing.xs) {
+                HStack(spacing: CounterSpacing.xs) {
+                    Text(reply.author.displayName ?? reply.author.username)
+                        .font(CounterFont.body(13))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(theme.text)
+                        .lineLimit(1)
+
+                    if reply.author.verified {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.accent)
+                            .fixedSize()
+                    }
+
+                    Spacer(minLength: CounterSpacing.xs)
+
+                    RelativeTimeText(isoString: reply.createdAt)
+                }
+
+                replyBody
+
+                // Nested replies live in the content column, so they're already
+                // indented one step past this reply's avatar without extra padding.
+                if !children.isEmpty {
+                    VStack(spacing: 0) {
+                        ForEach(Array(children.enumerated()), id: \.element.id) { idx, child in
+                            ReplyPreviewRow(reply: child, hasFollowing: idx < children.count - 1)
+                        }
+                    }
+                    .padding(.top, CounterSpacing.sm)
+                }
+            }
+            .padding(.top, CounterSpacing.xs)
+            .padding(.bottom, hasFollowing || !children.isEmpty ? CounterSpacing.xs : CounterSpacing.sm)
+        }
+    }
+
+    @ViewBuilder
+    private var replyBody: some View {
+        if reply.deleted {
+            Text("This post was deleted.")
+                .font(CounterFont.body(13))
+                .foregroundStyle(theme.textDim)
+                .italic()
+        } else if let body = reply.body {
+            Text(body)
+                .font(CounterFont.body(13))
+                .foregroundStyle(theme.textDim)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
