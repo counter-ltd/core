@@ -60,16 +60,19 @@
 {/if}
 
 <div class="stack feed">
-  {#each data.feed.data as post (post.id)}
-    <PostCard {post} currentUser={data.user} redirectTo={here} />
-  {:else}
-    <p class="muted empty">No posts yet. Be the first to post here!</p>
-  {/each}
+  {#await data.feed}
+    <p class="muted">Loading…</p>
+  {:then feed}
+    {#each feed.data as post (post.id)}
+      <PostCard {post} currentUser={data.user} redirectTo={here} />
+    {:else}
+      <p class="muted empty">No posts yet. Be the first to post here!</p>
+    {/each}
+    {#if feed.nextCursor}
+      <a class="btn more" href="{here}?after={feed.nextCursor}">Load more</a>
+    {/if}
+  {/await}
 </div>
-
-{#if data.feed.nextCursor}
-  <a class="btn more" href="{here}?after={data.feed.nextCursor}">Load more</a>
-{/if}
 
 <style>
   .topic-header {

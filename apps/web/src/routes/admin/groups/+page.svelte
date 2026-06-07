@@ -195,16 +195,6 @@
 </div>
 
 <style>
-  .workspace {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: var(--space-4);
-    align-items: start;
-  }
-  .workspace.has-panel {
-    grid-template-columns: 1fr 320px;
-  }
-
   .topbar {
     margin-bottom: var(--space-3);
   }
@@ -297,12 +287,15 @@
     white-space: nowrap;
   }
 
-  /* Side panel */
+  /* Side panel floats over the page so the table width is never affected. */
   .side-panel {
-    position: sticky;
-    top: var(--space-4);
-    max-height: calc(100vh - var(--space-8, 4rem));
+    position: fixed;
+    top: 8rem;
+    right: var(--space-4);
+    width: 320px;
+    max-height: calc(100vh - 9rem);
     overflow-y: auto;
+    z-index: 100;
   }
   .panel-head {
     display: flex;

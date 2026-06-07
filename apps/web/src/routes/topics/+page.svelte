@@ -24,11 +24,12 @@
   {/if}
 </div>
 
-{#if data.topics.length === 0}
-  <p class="muted empty">No topics yet. Be the first to create one!</p>
-{:else}
-  <div class="stack list">
-    {#each data.topics as topic (topic.id)}
+{#await data.topics then topics}
+  {#if topics.length === 0}
+    <p class="muted empty">No topics yet. Be the first to create one!</p>
+  {:else}
+    <div class="stack list">
+      {#each topics as topic (topic.id)}
       <div class="topic-row panel">
         <div class="topic-info">
           <a href="/topics/{topic.slug}" class="topic-name">{topic.name}</a>
@@ -61,7 +62,8 @@
       </div>
     {/each}
   </div>
-{/if}
+  {/if}
+{/await}
 
 <style>
   .head {

@@ -108,6 +108,62 @@ body {
   min-height: 100vh;
 }
 
+/* The thing that makes glass read as glass: something for it to refract. A
+   frosted panel over a flat fill is just tinted plastic, because blur and
+   saturate only have one dead colour to work with. This lays a soft wash of the
+   theme's two accents behind everything, so when a translucent .panel blurs and
+   over-saturates its backdrop, real colour blooms and bends through the edges.
+
+   It self-gates on translucency: opacity is calc(1 - --surface-opacity), so a
+   flat theme (opacity 1) gets exactly 0 and the wash never paints. Only a theme
+   that dials the surface down (a glass theme) lights it up. No theme name to
+   check, no per-theme rule; the look follows the data. The blobs are sized in
+   accent colour via color-mix, so each glass theme refracts its own palette.
+   z-index -1 sits it above the body fill but under all content. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: -20vmax;
+  z-index: -1;
+  pointer-events: none;
+  opacity: calc((1 - var(--surface-opacity)) * 1.1);
+  background:
+    radial-gradient(
+      38% 44% at 18% 22%,
+      color-mix(in srgb, var(--color-accent) 70%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      42% 50% at 84% 26%,
+      color-mix(in srgb, var(--color-accent-2, var(--color-accent)) 65%, transparent),
+      transparent 72%
+    ),
+    radial-gradient(
+      46% 52% at 64% 88%,
+      color-mix(in srgb, var(--color-accent) 45%, transparent),
+      transparent 74%
+    );
+  filter: blur(70px) saturate(160%);
+  /* Slow drift keeps it "liquid" — the wash crawls so the refraction behind the
+     panels is never quite static. Cut entirely for reduced-motion. */
+  animation: ambient-drift 38s ease-in-out infinite alternate;
+}
+
+@keyframes ambient-drift {
+  from {
+    transform: translate3d(-2%, -1.5%, 0) scale(1.05);
+  }
+  to {
+    transform: translate3d(2.5%, 2%, 0) scale(1.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::before {
+    animation: none;
+  }
+}
+
 ::selection {
   background: var(--color-accent);
   color: var(--color-accent-contrast);

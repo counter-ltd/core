@@ -28,22 +28,27 @@
 
 <!-- Only logged-in people can post; the redirect brings them back here after -->
 {#if data.user}
-  <Composer redirectTo="/" placeholder="Say something public…" topics={data.topics} />
+  {#await data.topics then topics}
+    <Composer redirectTo="/" placeholder="Say something public…" {topics} />
+  {/await}
 {/if}
 
 <div class="stack feed">
-  {#each data.feed.data as post (post.id)}
-    <PostCard {post} currentUser={data.user} redirectTo="/" />
-  {:else}
-    <p class="muted empty">No posts yet. Be the first.</p>
-  {/each}
+  {#await data.feed}
+    <p class="muted">Loading…</p>
+  {:then feed}
+    {#each feed.data as post (post.id)}
+      <PostCard {post} currentUser={data.user} redirectTo="/" />
+    {:else}
+      <p class="muted empty">No posts yet. Be the first.</p>
+    {/each}
+    <!-- Cursor pagination: a link rather than a button so it works without JS
+         and keeps the URL shareable. nextCursor is absent on the last page. -->
+    {#if feed.nextCursor}
+      <a class="btn more" href="/?after={feed.nextCursor}">Load more</a>
+    {/if}
+  {/await}
 </div>
-
-<!-- Cursor pagination: a link rather than a button so it works without JS and
-     keeps the URL shareable. nextCursor is absent on the last page. -->
-{#if data.feed.nextCursor}
-  <a class="btn more" href="/?after={data.feed.nextCursor}">Load more</a>
-{/if}
 
 <style>
   .hero {

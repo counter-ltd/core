@@ -14,6 +14,7 @@
    */
 
   import Checkbox from '$lib/components/Checkbox.svelte';
+  import { portal } from '$lib/portal';
 
   /** Shape expected by the options prop. */
   export interface MultiSelectOption {
@@ -56,6 +57,9 @@
   let open = $state(false);
   let containerEl = $state<HTMLDivElement | null>(null);
   let triggerEl = $state<HTMLButtonElement | null>(null);
+  // panelEl lives in document.body (via portal), so outside-click must check it separately.
+  let panelEl = $state<HTMLDivElement | null>(null);
+  let panelPos = $state({ top: 0, left: 0, width: 0 });
 
   const selectedOptions = $derived(options.filter((o) => value.includes(o.value)));
 
@@ -72,8 +76,16 @@
   );
   const someSelected = $derived(selectedOptions.length > 0 && !allSelected);
 
+  function closePanel() {
+    open = false;
+  }
+
   function toggle() {
     if (disabled) return;
+    if (!open) {
+      const rect = triggerEl?.getBoundingClientRect();
+      if (rect) panelPos = { top: rect.bottom + 4, left: rect.left, width: rect.width };
+    }
     open = !open;
   }
 
@@ -94,20 +106,30 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
-      open = false;
+      closePanel();
       triggerEl?.focus();
     } else if (e.key === 'Tab') {
-      open = false;
+      closePanel();
     }
   }
 
+  // Close on outside click or scroll. panelEl is in document.body (portal),
+  // so it is not inside containerEl and must be checked independently.
   $effect(() => {
     if (!open) return;
     function handleOutside(e: MouseEvent) {
-      if (!containerEl?.contains(e.target as Node)) open = false;
+      if (!containerEl?.contains(e.target as Node) && !panelEl?.contains(e.target as Node)) {
+        closePanel();
+      }
     }
     document.addEventListener('mousedown', handleOutside, true);
-    return () => document.removeEventListener('mousedown', handleOutside, true);
+    window.addEventListener('scroll', closePanel, true);
+    window.addEventListener('resize', closePanel);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside, true);
+      window.removeEventListener('scroll', closePanel, true);
+      window.removeEventListener('resize', closePanel);
+    };
   });
 </script>
 
@@ -152,7 +174,15 @@
   </button>
 
   {#if open}
-    <div class="panel" role="listbox" aria-multiselectable="true" aria-label={ariaLabel}>
+    <div
+      bind:this={panelEl}
+      use:portal
+      class="panel"
+      style="top: {panelPos.top}px; left: {panelPos.left}px; width: {panelPos.width}px;"
+      role="listbox"
+      aria-multiselectable="true"
+      aria-label={ariaLabel}
+    >
       {#if options.length > 1}
         <div class="option select-all">
           <Checkbox
@@ -227,9 +257,6 @@
 
   .open .trigger {
     border-color: var(--color-accent);
-    border-bottom-color: transparent;
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
   }
 
   .disabled .trigger {
@@ -262,17 +289,21 @@
     display: block;
   }
 
+  /* Same glass treatment as Select's menu and the global .panel: translucent
+     color-mix fill plus backdrop blur, so it frosts the content behind on a
+     glass theme and stays solid on a flat one. */
   .panel {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    z-index: 50;
-    background: var(--color-bg-2);
+    position: fixed;
+    z-index: 1000;
+    background: color-mix(
+      in srgb,
+      var(--color-surface) calc(var(--surface-opacity) * 100%),
+      transparent
+    );
+    -webkit-backdrop-filter: blur(var(--surface-blur)) saturate(var(--surface-saturate));
+    backdrop-filter: blur(var(--surface-blur)) saturate(var(--surface-saturate));
     border: 1px solid var(--color-accent);
-    border-top: none;
-    border-bottom-left-radius: var(--radius-sm);
-    border-bottom-right-radius: var(--radius-sm);
+    border-radius: var(--radius-sm);
     overflow-y: auto;
     max-height: 280px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);

@@ -15,6 +15,8 @@
    * there is no blank option.
    */
 
+  import { portal } from '$lib/portal';
+
   /** Shape expected by the options prop. */
   export interface SelectOption {
     value: string;
@@ -58,6 +60,9 @@
   let focusedIndex = $state(-1);
   let containerEl = $state<HTMLDivElement | null>(null);
   let triggerEl = $state<HTMLButtonElement | null>(null);
+  // panelEl lives in document.body (via portal), so outside-click must check it separately.
+  let panelEl = $state<HTMLDivElement | null>(null);
+  let panelPos = $state({ top: 0, left: 0, width: 0 });
 
   const selectedOption = $derived(options.find((o) => o.value === value));
   const selectedLabel = $derived(selectedOption?.label ?? placeholder);
@@ -65,6 +70,8 @@
 
   function openPanel() {
     if (disabled) return;
+    const rect = triggerEl?.getBoundingClientRect();
+    if (rect) panelPos = { top: rect.bottom + 4, left: rect.left, width: rect.width };
     open = true;
     // Start keyboard focus on the currently selected option, or first.
     focusedIndex = Math.max(
@@ -113,14 +120,23 @@
     }
   }
 
-  // Close on any click outside the component while the panel is open.
+  // Close on outside click or scroll. panelEl is in document.body (portal),
+  // so it is not inside containerEl and must be checked independently.
   $effect(() => {
     if (!open) return;
     function handleOutside(e: MouseEvent) {
-      if (!containerEl?.contains(e.target as Node)) closePanel();
+      if (!containerEl?.contains(e.target as Node) && !panelEl?.contains(e.target as Node)) {
+        closePanel();
+      }
     }
     document.addEventListener('mousedown', handleOutside, true);
-    return () => document.removeEventListener('mousedown', handleOutside, true);
+    window.addEventListener('scroll', closePanel, true);
+    window.addEventListener('resize', closePanel);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside, true);
+      window.removeEventListener('scroll', closePanel, true);
+      window.removeEventListener('resize', closePanel);
+    };
   });
 </script>
 
@@ -157,7 +173,14 @@
   </button>
 
   {#if open}
-    <div class="panel" role="listbox" aria-label={ariaLabel}>
+    <div
+      bind:this={panelEl}
+      use:portal
+      class="panel"
+      style="top: {panelPos.top}px; left: {panelPos.left}px; width: {panelPos.width}px;"
+      role="listbox"
+      aria-label={ariaLabel}
+    >
       {#each options as opt, i (opt.value)}
         <div
           class="option"
@@ -223,12 +246,8 @@
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 30%, transparent);
   }
 
-  /* Merge the trigger's bottom border with the panel's top border when open. */
   .open .trigger {
     border-color: var(--color-accent);
-    border-bottom-color: transparent;
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
   }
 
   .disabled .trigger {
@@ -261,17 +280,24 @@
     display: block;
   }
 
+  /* Match the global .panel glass treatment so the open menu frosts the content
+     behind it instead of sitting on the page as a solid slab. Same color-mix +
+     backdrop-filter the surface primitive uses, so it follows the theme: a flat
+     theme (--surface-opacity 1) gets a solid fill, a glass theme gets a
+     translucent, blurred one. The accent border stays so the open menu still
+     reads as the active control. */
   .panel {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    z-index: 50;
-    background: var(--color-bg-2);
+    position: fixed;
+    z-index: 1000;
+    background: color-mix(
+      in srgb,
+      var(--color-surface) calc(var(--surface-opacity) * 100%),
+      transparent
+    );
+    -webkit-backdrop-filter: blur(var(--surface-blur)) saturate(var(--surface-saturate));
+    backdrop-filter: blur(var(--surface-blur)) saturate(var(--surface-saturate));
     border: 1px solid var(--color-accent);
-    border-top: none;
-    border-bottom-left-radius: var(--radius-sm);
-    border-bottom-right-radius: var(--radius-sm);
+    border-radius: var(--radius-sm);
     overflow-y: auto;
     max-height: 240px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);

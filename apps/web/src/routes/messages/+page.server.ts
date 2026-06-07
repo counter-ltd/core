@@ -15,18 +15,20 @@ export const load: PageServerLoad = async ({ url, locals, fetch }) => {
   if (!locals.user) throw redirect(303, '/login');
 
   const after = url.searchParams.get('after') ?? undefined;
-  const res = await apiFetch<Page<Conversation>>('/messages', {
-    query: { after, limit: 30 },
-    token: locals.accessToken,
-    fetch,
-  });
-
-  const all = res.ok ? res.data : { data: [] as Conversation[], nextCursor: null };
-
-  // Split into the main inbox (active conversations + requests the viewer sent)
-  // and an inbound-requests queue (requests the viewer received).
-  const conversations = { data: all.data.filter((c) => !c.isInboundRequest), nextCursor: all.nextCursor };
-  const requests = { data: all.data.filter((c) => c.isInboundRequest) };
-
-  return { conversations, requests };
+  // Single promise so both derived lists resolve together from one fetch.
+  return {
+    inbox: apiFetch<Page<Conversation>>('/messages', {
+      query: { after, limit: 30 },
+      token: locals.accessToken,
+      fetch,
+    }).then(r => {
+      const all = r.ok ? r.data : { data: [] as Conversation[], nextCursor: null };
+      // Split into the main inbox (active conversations + requests the viewer
+      // sent) and an inbound-requests queue (requests the viewer received).
+      return {
+        conversations: { data: all.data.filter((c) => !c.isInboundRequest), nextCursor: all.nextCursor },
+        requests: { data: all.data.filter((c) => c.isInboundRequest) },
+      };
+    }),
+  };
 };

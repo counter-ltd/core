@@ -14,11 +14,12 @@ import { apiFetch } from '$lib/server/api';
 import type { Topic } from '@counter/types';
 
 export const load: PageServerLoad = async ({ locals, fetch }) => {
-  const res = await apiFetch<{ data: Topic[]; nextCursor: string | null }>('/topics', {
-    token: locals.accessToken,
-    fetch,
-  });
-  return { topics: res.ok ? res.data.data : [] };
+  return {
+    topics: apiFetch<{ data: Topic[]; nextCursor: string | null }>('/topics', {
+      token: locals.accessToken,
+      fetch,
+    }).then(r => r.ok ? r.data.data : [] as Topic[]),
+  };
 };
 
 export const actions: Actions = {

@@ -20,21 +20,16 @@ export const load: PageServerLoad = async ({ url, locals, fetch }) => {
   // Cursor-paginated: `?after=<cursor>` carries the previous page's nextCursor.
   // Absent on the first load, so coerce the empty string to undefined.
   const after = url.searchParams.get('after') ?? undefined;
-  const [feedRes, topicsRes] = await Promise.all([
-    apiFetch<Page<Post>>('/posts', {
+  // Return promises so the shell renders immediately and content streams in.
+  return {
+    feed: apiFetch<Page<Post>>('/posts', {
       query: { after, limit: 20 },
       token: locals.accessToken,
       fetch,
-    }),
-    apiFetch<{ data: Topic[]; nextCursor: string | null }>('/topics', {
+    }).then(r => r.ok ? r.data : { data: [] as Post[], nextCursor: null }),
+    topics: apiFetch<{ data: Topic[]; nextCursor: string | null }>('/topics', {
       token: locals.accessToken,
       fetch,
-    }),
-  ]);
-  // Fall back to empty rather than throwing so a flaky topics call doesn't
-  // take down the whole feed page.
-  return {
-    feed: feedRes.ok ? feedRes.data : { data: [], nextCursor: null },
-    topics: topicsRes.ok ? topicsRes.data.data : [],
+    }).then(r => r.ok ? r.data.data : [] as Topic[]),
   };
 };

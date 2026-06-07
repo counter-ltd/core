@@ -15,6 +15,8 @@
    */
   import type { HTMLInputAttributes } from 'svelte/elements';
   import type { Snippet } from 'svelte';
+  import { draw, scale } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
 
   interface Props extends Omit<HTMLInputAttributes, 'checked' | 'type'> {
     checked?: boolean;
@@ -47,10 +49,12 @@
   <input bind:this={inputEl} bind:checked type="checkbox" {disabled} {...rest} />
   <span class="box" aria-hidden="true">
     {#if indeterminate}
-      <span class="dash"></span>
+      <span class="dash" in:scale={{ duration: 150, start: 0.4, easing: cubicOut }} out:scale={{ duration: 100, start: 0.4 }}></span>
     {:else if checked}
       <svg viewBox="0 0 10 8" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path
+          in:draw={{ duration: 220, easing: cubicOut }}
+          out:draw={{ duration: 120 }}
           d="M1 4L3.5 6.5L9 1"
           stroke="currentColor"
           stroke-width="1.5"
@@ -122,6 +126,12 @@
   input:indeterminate + .box {
     background: var(--color-accent);
     border-color: var(--color-accent);
+    animation: cb-pop 200ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+
+  @keyframes cb-pop {
+    from { transform: scale(0.85); }
+    to   { transform: scale(1); }
   }
 
   svg {

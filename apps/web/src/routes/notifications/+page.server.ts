@@ -16,12 +16,13 @@ import type { Notification, Page } from '@counter/types';
 export const load: PageServerLoad = async ({ url, locals, fetch }) => {
   if (!locals.user) throw redirect(303, '/login');
   const after = url.searchParams.get('after') ?? undefined;
-  const res = await apiFetch<Page<Notification>>('/notifications', {
-    query: { after, limit: 30 },
-    token: locals.accessToken,
-    fetch,
-  });
-  return { notifications: res.ok ? res.data : { data: [], nextCursor: null } };
+  return {
+    notifications: apiFetch<Page<Notification>>('/notifications', {
+      query: { after, limit: 30 },
+      token: locals.accessToken,
+      fetch,
+    }).then(r => r.ok ? r.data : { data: [] as Notification[], nextCursor: null }),
+  };
 };
 
 export const actions: Actions = {

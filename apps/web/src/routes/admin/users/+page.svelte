@@ -298,16 +298,6 @@
     min-width: 160px;
   }
 
-  .workspace {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: var(--space-4);
-    align-items: start;
-  }
-  .workspace.has-panel {
-    grid-template-columns: 1fr 300px;
-  }
-
   /* The card frames the table; rows draw their own dividers edge to edge. */
   .table-wrap {
     overflow-x: auto;
@@ -427,10 +417,15 @@
     padding: 0;
   }
 
-  /* Side panel */
+  /* Side panel floats over the page so the table width is never affected. */
   .side-panel {
-    position: sticky;
-    top: var(--space-4);
+    position: fixed;
+    top: 8rem;
+    right: var(--space-4);
+    width: 300px;
+    max-height: calc(100vh - 9rem);
+    overflow-y: auto;
+    z-index: 100;
   }
   .panel-head {
     display: flex;

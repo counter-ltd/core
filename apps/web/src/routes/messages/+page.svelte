@@ -102,103 +102,108 @@
     onclick={() => (tab = 'requests')}
   >
     Requests
-    {#if data.requests.data.length > 0}
-      <span class="tab-badge">{data.requests.data.length}</span>
-    {/if}
+    {#await data.inbox then inbox}
+      {#if inbox.requests.data.length > 0}
+        <span class="tab-badge">{inbox.requests.data.length}</span>
+      {/if}
+    {/await}
   </button>
 </div>
 
-{#if tab === 'messages'}
-  <div class="stack">
-    {#each data.conversations.data as conv (conv.id)}
-      <a
-        class="row panel convo"
-        class:unread={conv.unreadCount > 0}
-        class:pending={conv.status === 'request'}
-        href="/messages/{conv.partner.username}"
-      >
-        <Avatar user={conv.partner} size={42} />
-        <div class="info">
-          <div class="spread name-row">
-            <span class="name">
-              <strong>{conv.partner.displayName || conv.partner.username}</strong>
-              <span class="handle faint">@{conv.partner.username}</span>
-              {#if conv.partner.presence?.isOnline}
-                <span class="online-dot" title="Online now" aria-label="Online"></span>
-              {/if}
-              {#if conv.status === 'request'}
-                <span class="pending-label">pending</span>
-              {/if}
-            </span>
-            <span class="time faint">{timeAgo(conv.lastMessageAt)}</span>
+{#await data.inbox}
+  <div class="stack"><p class="muted empty">Loading…</p></div>
+{:then inbox}
+  {#if tab === 'messages'}
+    <div class="stack">
+      {#each inbox.conversations.data as conv (conv.id)}
+        <a
+          class="row panel convo"
+          class:unread={conv.unreadCount > 0}
+          class:pending={conv.status === 'request'}
+          href="/messages/{conv.partner.username}"
+        >
+          <Avatar user={conv.partner} size={42} />
+          <div class="info">
+            <div class="spread name-row">
+              <span class="name">
+                <strong>{conv.partner.displayName || conv.partner.username}</strong>
+                <span class="handle faint">@{conv.partner.username}</span>
+                {#if conv.partner.presence?.isOnline}
+                  <span class="online-dot" title="Online now" aria-label="Online"></span>
+                {/if}
+                {#if conv.status === 'request'}
+                  <span class="pending-label">pending</span>
+                {/if}
+              </span>
+              <span class="time faint">{timeAgo(conv.lastMessageAt)}</span>
+            </div>
+            {#if conv.lastMessage}
+              <span class="preview muted">
+                {#if conv.lastMessage.encrypted}
+                  <!-- E2EE ciphertexts (v2:/v3: prefix) can't be previewed
+                       server-side. Server-encrypted messages are decrypted by
+                       the server before reaching the client, so encrypted:true
+                       is always E2EE — hence the green glyph. -->
+                  <span class="lock-preview">
+                    <svg class="lock-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 0 0-5.25 5.25v3a3 3 0 0 0-3 3v6.75a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3v-6.75a3 3 0 0 0-3-3v-3c0-2.9-2.35-5.25-5.25-5.25Zm3.75 8.25v-3a3.75 3.75 0 1 0-7.5 0v3h7.5Z" clip-rule="evenodd" />
+                    </svg>
+                    Encrypted message
+                  </span>
+                {:else if conv.lastMessage.sender.id === conv.partner.id}
+                  {preview(conv.lastMessage.body)}
+                {:else}
+                  <span class="you faint">You: </span>{preview(conv.lastMessage.body)}
+                {/if}
+              </span>
+            {/if}
           </div>
-          {#if conv.lastMessage}
-            <span class="preview muted">
-              {#if conv.lastMessage.encrypted}
-                <!-- E2EE ciphertexts (v2:/v3: prefix) can't be previewed
-                     server-side. Server-encrypted messages are decrypted by
-                     the server before reaching the client, so encrypted:true
-                     is always E2EE — hence the green glyph. -->
-                <span class="lock-preview">
-                  <svg class="lock-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 0 0-5.25 5.25v3a3 3 0 0 0-3 3v6.75a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3v-6.75a3 3 0 0 0-3-3v-3c0-2.9-2.35-5.25-5.25-5.25Zm3.75 8.25v-3a3.75 3.75 0 1 0-7.5 0v3h7.5Z" clip-rule="evenodd" />
-                  </svg>
-                  Encrypted message
-                </span>
-              {:else if conv.lastMessage.sender.id === conv.partner.id}
-                {preview(conv.lastMessage.body)}
-              {:else}
-                <span class="you faint">You: </span>{preview(conv.lastMessage.body)}
-              {/if}
-            </span>
+          {#if conv.unreadCount > 0}
+            <span class="badge">{conv.unreadCount}</span>
           {/if}
-        </div>
-        {#if conv.unreadCount > 0}
-          <span class="badge">{conv.unreadCount}</span>
-        {/if}
-      </a>
-    {:else}
-      <p class="muted empty">No conversations yet. Visit someone's profile to send them a message.</p>
-    {/each}
-  </div>
-
-  {#if data.conversations.nextCursor}
-    <a class="btn more" href="/messages?after={data.conversations.nextCursor}">Load more</a>
+        </a>
+      {:else}
+        <p class="muted empty">No conversations yet. Visit someone's profile to send them a message.</p>
+      {/each}
+    </div>
+    {#if inbox.conversations.nextCursor}
+      <a class="btn more" href="/messages?after={inbox.conversations.nextCursor}">Load more</a>
+    {/if}
+  {:else}
+    <div class="stack">
+      {#each inbox.requests.data as conv (conv.id)}
+        <a class="row panel convo" href="/messages/{conv.partner.username}">
+          <Avatar user={conv.partner} size={42} />
+          <div class="info">
+            <div class="spread name-row">
+              <span class="name">
+                <strong>{conv.partner.displayName || conv.partner.username}</strong>
+                <span class="handle faint">@{conv.partner.username}</span>
+              </span>
+              <span class="time faint">{timeAgo(conv.lastMessageAt)}</span>
+            </div>
+            {#if conv.lastMessage}
+              <span class="preview muted">
+                {#if conv.lastMessage.encrypted}
+                  <span class="lock-preview">
+                    <svg class="lock-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 0 0-5.25 5.25v3a3 3 0 0 0-3 3v6.75a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3v-6.75a3 3 0 0 0-3-3v-3c0-2.9-2.35-5.25-5.25-5.25Zm3.75 8.25v-3a3.75 3.75 0 1 0-7.5 0v3h7.5Z" clip-rule="evenodd" />
+                    </svg>
+                    Encrypted message
+                  </span>
+                {:else}
+                  {preview(conv.lastMessage.body)}
+                {/if}
+              </span>
+            {/if}
+          </div>
+        </a>
+      {:else}
+        <p class="muted empty">No message requests.</p>
+      {/each}
+    </div>
   {/if}
-{:else}
-  <div class="stack">
-    {#each data.requests.data as conv (conv.id)}
-      <a class="row panel convo" href="/messages/{conv.partner.username}">
-        <Avatar user={conv.partner} size={42} />
-        <div class="info">
-          <div class="spread name-row">
-            <span class="name">
-              <strong>{conv.partner.displayName || conv.partner.username}</strong>
-              <span class="handle faint">@{conv.partner.username}</span>
-            </span>
-            <span class="time faint">{timeAgo(conv.lastMessageAt)}</span>
-          </div>
-          {#if conv.lastMessage}
-            <span class="preview muted">
-              {#if conv.lastMessage.encrypted}
-                <span class="lock-preview">
-                  <svg class="lock-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 0 0-5.25 5.25v3a3 3 0 0 0-3 3v6.75a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3v-6.75a3 3 0 0 0-3-3v-3c0-2.9-2.35-5.25-5.25-5.25Zm3.75 8.25v-3a3.75 3.75 0 1 0-7.5 0v3h7.5Z" clip-rule="evenodd" />
-                  </svg>
-                  Encrypted message
-                </span>
-              {:else}
-                {preview(conv.lastMessage.body)}
-              {/if}
-            </span>
-          {/if}
-        </div>
-      </a>
-    {:else}
-      <p class="muted empty">No message requests.</p>
-    {/each}
-  </div>
-{/if}
+{/await}
 
 <!-- New-message dialog. Uses the native <dialog> element so focus trapping,
      backdrop clicks, and Escape-to-close all work without extra JS. -->

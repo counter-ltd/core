@@ -16,15 +16,18 @@ import type { Page, Post, PublicUser } from '@counter/types';
 export const load: PageServerLoad = async ({ params, url, locals, fetch }) => {
   const after = url.searchParams.get('after') ?? undefined;
 
-  // Both calls in parallel: neither depends on the other's result.
-  const [profileRes, postsRes] = await Promise.all([
-    apiFetch<PublicUser>(`/users/${params.username}`, { token: locals.accessToken, fetch }),
-    apiFetch<Page<Post>>(`/users/${params.username}/posts`, {
-      query: { after, limit: 20 },
-      token: locals.accessToken,
-      fetch,
-    }),
-  ]);
+  // Both fetches start simultaneously. Profile must resolve before we can
+  // check for 404 or render the header; posts stream in after that.
+  const postsPromise = apiFetch<Page<Post>>(`/users/${params.username}/posts`, {
+    query: { after, limit: 20 },
+    token: locals.accessToken,
+    fetch,
+  });
+
+  const profileRes = await apiFetch<PublicUser>(`/users/${params.username}`, {
+    token: locals.accessToken,
+    fetch,
+  });
 
   // The profile is the load-bearing fetch: no user means there's no page to
   // show, so fail hard. Preserve a real 404 (unknown username) but treat any
@@ -33,8 +36,8 @@ export const load: PageServerLoad = async ({ params, url, locals, fetch }) => {
 
   return {
     profile: profileRes.data,
-    // Posts are secondary: if that call failed we still render the profile
-    // header with an empty timeline rather than erroring the whole page.
-    posts: postsRes.ok ? postsRes.data : { data: [], nextCursor: null },
+    // Posts stream in separately; a failed posts call degrades to an empty
+    // timeline rather than erroring the whole profile page.
+    posts: postsPromise.then(r => r.ok ? r.data : { data: [] as Post[], nextCursor: null }),
   };
 };

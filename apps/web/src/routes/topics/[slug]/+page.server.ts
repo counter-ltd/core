@@ -19,15 +19,18 @@ export const load: PageServerLoad = async ({ params, url, locals, fetch }) => {
   const slug = params.slug;
   const after = url.searchParams.get('after') ?? undefined;
 
-  // Topic header and its feed in parallel; independent reads.
-  const [topicRes, postsRes] = await Promise.all([
-    apiFetch<Topic>(`/topics/${slug}`, { token: locals.accessToken, fetch }),
-    apiFetch<Page<Post>>(`/topics/${slug}/posts`, {
-      query: { after, limit: 20 },
-      token: locals.accessToken,
-      fetch,
-    }),
-  ]);
+  // Both fetches start simultaneously. Topic must resolve first so we can
+  // check for 404 and render the header; the feed streams in after that.
+  const feedPromise = apiFetch<Page<Post>>(`/topics/${slug}/posts`, {
+    query: { after, limit: 20 },
+    token: locals.accessToken,
+    fetch,
+  });
+
+  const topicRes = await apiFetch<Topic>(`/topics/${slug}`, {
+    token: locals.accessToken,
+    fetch,
+  });
 
   // No topic, no page. Always 404 here (vs the user routes' 404/500 split),
   // since a failed topic lookup almost always means an unknown slug.
@@ -35,8 +38,9 @@ export const load: PageServerLoad = async ({ params, url, locals, fetch }) => {
 
   return {
     topic: topicRes.data,
-    // Feed degrades to empty so a failed posts call still shows the header.
-    feed: postsRes.ok ? postsRes.data : { data: [], nextCursor: null },
+    // Feed streams in separately; a failed posts call degrades to an empty
+    // feed rather than erroring the whole topic page.
+    feed: feedPromise.then(r => r.ok ? r.data : { data: [] as Post[], nextCursor: null }),
   };
 };
 

@@ -19,19 +19,26 @@
 <h1 class="title">Your feed</h1>
 <p class="muted sub">Posts from people you follow, newest first.</p>
 
-<Composer redirectTo="/feed" topics={data.topics} />
+{#await data.topics}
+  <Composer redirectTo="/feed" topics={[]} />
+{:then topics}
+  <Composer redirectTo="/feed" {topics} />
+{/await}
 
 <div class="stack feed">
-  {#each data.feed.data as post (post.id)}
-    <PostCard {post} currentUser={data.user} redirectTo="/feed" />
-  {:else}
-    <p class="muted empty">Your feed is quiet. Follow some people, or check the <a href="/">public square</a>.</p>
-  {/each}
+  {#await data.feed}
+    <p class="muted">Loading…</p>
+  {:then feed}
+    {#each feed.data as post (post.id)}
+      <PostCard {post} currentUser={data.user} redirectTo="/feed" />
+    {:else}
+      <p class="muted empty">Your feed is quiet. Follow some people, or check the <a href="/">public square</a>.</p>
+    {/each}
+    {#if feed.nextCursor}
+      <a class="btn more" href="/feed?after={feed.nextCursor}">Load more</a>
+    {/if}
+  {/await}
 </div>
-
-{#if data.feed.nextCursor}
-  <a class="btn more" href="/feed?after={data.feed.nextCursor}">Load more</a>
-{/if}
 
 <style>
   .title { margin-bottom: 0; }

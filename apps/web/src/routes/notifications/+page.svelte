@@ -23,11 +23,8 @@
   let live = $state<Notification[]>([]);
 
   // Live arrivals first, then the loaded page, deduped by id so a refetch that
-  // later includes a live one doesn't double it.
-  const items = $derived.by(() => {
-    const seen = new Set(data.notifications.data.map((n: Notification) => n.id));
-    return [...live.filter((n) => !seen.has(n.id)), ...data.notifications.data];
-  });
+  // later includes a live one doesn't double it. Computed inline in the template
+  // via {#await} so it can reference the streamed notifs value.
 
   onMount(() => {
     function onLive(e: Event) {
@@ -83,26 +80,32 @@
 </div>
 
 <div class="stack">
-  {#each items as n (n.id)}
-    <a class="note panel" class:unread={!n.read} href={target(n)}>
-      <Avatar user={n.actor} size={40} />
-      <div class="txt">
-        <span>
-          <strong>{n.actor.displayName || n.actor.username}</strong>
-          <span class="muted">{verbs[n.type]}</span>
-        </span>
-        {#if n.post?.body}<span class="snippet faint">{n.post.body}</span>{/if}
-      </div>
-      <span class="time faint">{timeAgo(n.createdAt)}</span>
-    </a>
-  {:else}
-    <p class="muted empty">Nothing yet. Engagement will show up here.</p>
-  {/each}
+  {#await data.notifications}
+    <p class="muted empty">Loading…</p>
+  {:then notifs}
+    <!-- seen is a Set of server-loaded IDs used to deduplicate live arrivals.
+         It stays valid for the lifetime of this :then block since notifs is stable. -->
+    {@const seen = new Set(notifs.data.map((n) => n.id))}
+    {#each [...live.filter((n) => !seen.has(n.id)), ...notifs.data] as n (n.id)}
+      <a class="note panel" class:unread={!n.read} href={target(n)}>
+        <Avatar user={n.actor} size={40} />
+        <div class="txt">
+          <span>
+            <strong>{n.actor.displayName || n.actor.username}</strong>
+            <span class="muted">{verbs[n.type]}</span>
+          </span>
+          {#if n.post?.body}<span class="snippet faint">{n.post.body}</span>{/if}
+        </div>
+        <span class="time faint">{timeAgo(n.createdAt)}</span>
+      </a>
+    {:else}
+      <p class="muted empty">Nothing yet. Engagement will show up here.</p>
+    {/each}
+    {#if notifs.nextCursor}
+      <a class="btn more" href="/notifications?after={notifs.nextCursor}">Load more</a>
+    {/if}
+  {/await}
 </div>
-
-{#if data.notifications.nextCursor}
-  <a class="btn more" href="/notifications?after={data.notifications.nextCursor}">Load more</a>
-{/if}
 
 <style>
   .head { margin-bottom: var(--space-4); }

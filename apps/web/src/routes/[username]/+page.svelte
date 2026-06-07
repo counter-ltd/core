@@ -142,16 +142,19 @@
 </header>
 
 <div class="stack list">
-  {#each data.posts.data as post (post.id)}
-    <PostCard {post} currentUser={data.user} redirectTo={here} />
-  {:else}
-    <p class="muted empty">No posts yet.</p>
-  {/each}
+  {#await data.posts}
+    <p class="muted">Loading posts…</p>
+  {:then posts}
+    {#each posts.data as post (post.id)}
+      <PostCard {post} currentUser={data.user} redirectTo={here} />
+    {:else}
+      <p class="muted empty">No posts yet.</p>
+    {/each}
+    {#if posts.nextCursor}
+      <a class="btn more" href="{here}?after={posts.nextCursor}">Load more</a>
+    {/if}
+  {/await}
 </div>
-
-{#if data.posts.nextCursor}
-  <a class="btn more" href="{here}?after={data.posts.nextCursor}">Load more</a>
-{/if}
 
 <style>
   .profile {
