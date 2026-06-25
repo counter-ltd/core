@@ -166,7 +166,7 @@ export async function announcePush(
     const quip = await thingFiveQuip(env, payload, branch).catch(() => '');
 
     const body = quip ? `${quip}\n\n${summary}` : summary;
-    await postAsThingFive(env, body.slice(0, DISCORD_MESSAGE_LIMIT));
+    await postAsThingFive(env, body.slice(0, DISCORD_MESSAGE_LIMIT), env.DISCORD_COMMIT_CHANNEL_ID);
   } catch (err) {
     console.error('commit announce failed:', err);
   }
@@ -203,23 +203,36 @@ interface ChatCompletion {
   choices?: Array<{ message?: { content?: string } }>;
 }
 
+/**
+ * The config slice the model-voiced quip needs: an OpenAI-compatible endpoint,
+ * some auth (Google SA or static key), and Five's split persona prompt. Shared
+ * by commit and build announcements so both speak in the same voice.
+ */
+export interface ThingFiveQuipEnv {
+  OPENAI_BASE_URL: string;
+  OPENAI_API_KEY: string;
+  OPENAI_MODEL: string;
+  GOOGLE_SA_CLIENT_EMAIL: string;
+  GOOGLE_SA_PRIVATE_KEY: string;
+  THING_FIVE_SYSTEM_PROMPT: string;
+  THING_FIVE_SYSTEM_PROMPT_2: string;
+  THING_FIVE_SYSTEM_PROMPT_3?: string;
+}
+
 /** True when there's enough config to make a model call for the quip. */
-function quipConfigured(env: CommitAnnounceEnv): boolean {
+function quipConfigured(env: ThingFiveQuipEnv): boolean {
   if (!env.OPENAI_BASE_URL) return false;
   const hasGoogle = Boolean(env.GOOGLE_SA_PRIVATE_KEY && env.GOOGLE_SA_CLIENT_EMAIL);
   return hasGoogle || Boolean(env.OPENAI_API_KEY);
 }
 
 /**
- * Ask the model for a one-line Thing Five reaction to the push. Returns '' when
- * chat isn't configured or the call yields nothing, so the caller drops the quip
- * and posts the summary alone.
+ * Ask the model for a one-line reaction in Thing Five's voice, given a framed
+ * user turn. Returns '' when chat isn't configured, the persona prompt is unset,
+ * or the call yields nothing — so callers can drop the quip and post the bare
+ * summary. Shared by commit and build announcements.
  */
-async function thingFiveQuip(
-  env: CommitAnnounceEnv,
-  payload: GithubPushPayload,
-  branch: string,
-): Promise<string> {
+export async function thingFiveReact(env: ThingFiveQuipEnv, userPrompt: string): Promise<string> {
   if (!quipConfigured(env)) return '';
 
   const system =
@@ -227,25 +240,6 @@ async function thingFiveQuip(
     (env.THING_FIVE_SYSTEM_PROMPT_2 ?? '') +
     (env.THING_FIVE_SYSTEM_PROMPT_3 ?? '');
   if (!system) return '';
-
-  const repo = payload.repository?.full_name ?? 'a repo';
-  const messages = (payload.commits ?? [])
-    .slice(0, MAX_COMMITS_SHOWN)
-    .map((c) => `- ${firstLine(c.message)}`)
-    .join('\n');
-
-  // The user turn frames the job: react, do not summarize (the summary is posted
-  // separately), and stay short so it reads as a reaction, not a paragraph.
-  const userPrompt = [
-    'The developer just pushed code to GitHub. This is your job now: announce it',
-    'with one short, dry reaction in your voice. One line, maybe two. Do not list',
-    'the commits or repeat their wording, that gets posted under you. Just react.',
-    '',
-    `repo: ${repo}`,
-    `branch: ${branch}`,
-    'commit messages:',
-    messages || '- (no messages)',
-  ].join('\n');
 
   const base = env.OPENAI_BASE_URL.replace(/\/+$/, '');
   const bearer = await resolveBearer(env);
@@ -268,8 +262,40 @@ async function thingFiveQuip(
   return data.choices?.[0]?.message?.content?.trim() ?? '';
 }
 
+/**
+ * Ask the model for a one-line Thing Five reaction to the push. Returns '' when
+ * chat isn't configured or the call yields nothing, so the caller drops the quip
+ * and posts the summary alone.
+ */
+async function thingFiveQuip(
+  env: CommitAnnounceEnv,
+  payload: GithubPushPayload,
+  branch: string,
+): Promise<string> {
+  const repo = payload.repository?.full_name ?? 'a repo';
+  const messages = (payload.commits ?? [])
+    .slice(0, MAX_COMMITS_SHOWN)
+    .map((c) => `- ${firstLine(c.message)}`)
+    .join('\n');
+
+  // The user turn frames the job: react, do not summarize (the summary is posted
+  // separately), and stay short so it reads as a reaction, not a paragraph.
+  const userPrompt = [
+    'The developer just pushed code to GitHub. This is your job now: announce it',
+    'with one short, dry reaction in your voice. One line, maybe two. Do not list',
+    'the commits or repeat their wording, that gets posted under you. Just react.',
+    '',
+    `repo: ${repo}`,
+    `branch: ${branch}`,
+    'commit messages:',
+    messages || '- (no messages)',
+  ].join('\n');
+
+  return thingFiveReact(env, userPrompt);
+}
+
 /** Resolve the model bearer: a minted Google token, else the static key. */
-async function resolveBearer(env: CommitAnnounceEnv): Promise<string> {
+async function resolveBearer(env: ThingFiveQuipEnv): Promise<string> {
   if (env.GOOGLE_SA_PRIVATE_KEY && env.GOOGLE_SA_CLIENT_EMAIL) {
     return getGoogleAccessToken({
       clientEmail: env.GOOGLE_SA_CLIENT_EMAIL,
@@ -282,14 +308,19 @@ async function resolveBearer(env: CommitAnnounceEnv): Promise<string> {
 // --- discord post ---
 
 /**
- * Post a message to the commit channel as Thing Five, using his bot token. No-op
- * when the token or channel id is missing, so a half-configured deploy verifies
- * webhooks without erroring on the post.
+ * Post a message to a channel as Thing Five, using his bot token. No-op when the
+ * token or channel id is missing, so a half-configured deploy verifies webhooks
+ * without erroring on the post. Shared by commit and build announcements — the
+ * caller picks the channel.
  */
-async function postAsThingFive(env: CommitAnnounceEnv, content: string): Promise<void> {
-  if (!env.THING_FIVE_BOT_TOKEN || !env.DISCORD_COMMIT_CHANNEL_ID) return;
+export async function postAsThingFive(
+  env: { THING_FIVE_BOT_TOKEN: string },
+  content: string,
+  channelId: string,
+): Promise<void> {
+  if (!env.THING_FIVE_BOT_TOKEN || !channelId) return;
 
-  const res = await fetch(`${DISCORD_API}/channels/${env.DISCORD_COMMIT_CHANNEL_ID}/messages`, {
+  const res = await fetch(`${DISCORD_API}/channels/${channelId}/messages`, {
     method: 'POST',
     headers: {
       Authorization: `Bot ${env.THING_FIVE_BOT_TOKEN}`,

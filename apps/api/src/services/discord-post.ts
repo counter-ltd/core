@@ -49,8 +49,11 @@ export interface DiscordInteraction {
       messages?: Record<string, DiscordMessage>;
     };
   };
-  // Present in guild contexts; absent in DM interactions.
-  member?: { user: DiscordUser };
+  // Present in guild contexts; absent in DM interactions. `permissions` is the
+  // invoker's computed permission bitfield in the channel, as a decimal string.
+  member?: { user: DiscordUser; permissions?: string };
+  // The guild the command was invoked in. Present in guild contexts.
+  guild_id?: string;
   // Present in DM interactions.
   user?: DiscordUser;
 }
@@ -416,6 +419,133 @@ export async function handleInteractCommand(
   }
 
   return ephemeralReply('Unknown interaction.');
+}
+
+// --- /create-app forum creation ---
+
+/** Discord channel type for a forum channel. */
+const GUILD_FORUM = 15;
+
+/** Forum layout: 2 = gallery view (media-focused), Discord's other option is 1 = list. */
+const FORUM_LAYOUT_GALLERY = 2;
+
+/** Sort order: 0 = latest activity (the Discord default for forums). */
+const SORT_ORDER_LATEST = 0;
+
+/** Administrator permission bit (1 << 3). A holder can run /create-app. */
+const PERMISSION_ADMINISTRATOR = 1n << 3n;
+
+/**
+ * The tag set every new app forum starts with, mirroring the template forum:
+ * issue tracking, suggestions, and release/progress states. Emoji are unicode
+ * (emoji_name); custom guild emoji would use emoji_id instead.
+ */
+const APP_FORUM_TAGS = [
+  { name: 'Issue', emoji_name: '🛠️' },
+  { name: 'Suggestion', emoji_name: '💡' },
+  { name: 'Release', emoji_name: '📦' },
+  { name: 'Preview', emoji_name: '👀' },
+  { name: 'In Progress', emoji_name: '🛠️' },
+  { name: 'Added', emoji_name: '☑️' },
+  { name: 'Fixed', emoji_name: '✅' },
+] as const;
+
+/** Default reaction members get on each post in an app forum. */
+const APP_FORUM_REACTION = '💯';
+
+/** Config the /create-app command needs to talk to the Discord guild. */
+export interface CreateAppEnv {
+  DISCORD_BOT_TOKEN: string;
+  DISCORD_GUILD_ID: string;
+}
+
+/**
+ * True when the interaction's invoker holds the Administrator permission.
+ *
+ * The permission bitfield is computed by Discord for the invoking member in the
+ * command's channel and arrives as a decimal string. Registering the command
+ * with default_member_permissions only hides it in the client UI; this is the
+ * authoritative server-side check, so a crafted request still can't slip past.
+ *
+ * @param interaction  Parsed Discord interaction payload.
+ */
+function invokerIsAdmin(interaction: DiscordInteraction): boolean {
+  const raw = interaction.member?.permissions;
+  if (!raw) return false;
+  try {
+    return (BigInt(raw) & PERMISSION_ADMINISTRATOR) === PERMISSION_ADMINISTRATOR;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Handle the /create-app slash command: create a forum channel for a new app,
+ * pre-loaded with the standard tags, guidelines, gallery layout, and default
+ * reaction, so a new app doesn't need the forum built by hand each time.
+ *
+ * Admin-only. The forum is created at the top of the server (no parent
+ * category) and can be dragged into place afterward. One Discord REST call,
+ * which returns well within the 3s interaction window, so no deferral.
+ *
+ * @param interaction  Parsed Discord interaction payload.
+ * @param env          Bot token and guild id for the create call.
+ * @returns Discord interaction response object (ephemeral).
+ */
+export async function handleCreateAppCommand(
+  interaction: DiscordInteraction,
+  env: CreateAppEnv,
+): Promise<Record<string, unknown>> {
+  if (!invokerIsAdmin(interaction)) {
+    return ephemeralReply('Only server admins can create app forums.');
+  }
+
+  if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_GUILD_ID) {
+    return ephemeralReply('Discord bot is not configured for forum creation.');
+  }
+
+  const name = String(
+    interaction.data?.options?.find((o) => o.name === 'name')?.value ?? '',
+  ).trim();
+  if (!name) {
+    return ephemeralReply('Give the app a name: /create-app <name>.');
+  }
+
+  const res = await fetch(`${DISCORD_API}/guilds/${env.DISCORD_GUILD_ID}/channels`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+      'Content-Type': 'application/json',
+      // A human-readable reason shows up in the guild's audit log.
+      'X-Audit-Log-Reason': `App forum created via /create-app by ${interaction.member?.user?.username ?? 'unknown'}`,
+    },
+    body: JSON.stringify({
+      type: GUILD_FORUM,
+      // Discord lowercases and hyphenates channel names itself, so "Clink iOS"
+      // becomes "clink-ios". Send the raw name and let it slug.
+      name,
+      // The forum topic is shown as the "Post Guidelines" panel.
+      topic: name,
+      default_forum_layout: FORUM_LAYOUT_GALLERY,
+      default_sort_order: SORT_ORDER_LATEST,
+      default_reaction_emoji: { emoji_name: APP_FORUM_REACTION },
+      available_tags: APP_FORUM_TAGS,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error(`create-app forum failed: ${res.status} ${text}`);
+    // 403 almost always means the bot lacks Manage Channels in the guild.
+    if (res.status === 403) {
+      return ephemeralReply('I need the Manage Channels permission to create forums.');
+    }
+    return ephemeralReply('Could not create the forum. Check the app name and try again.');
+  }
+
+  const channel = (await res.json()) as { id: string };
+  const link = `https://discord.com/channels/${env.DISCORD_GUILD_ID}/${channel.id}`;
+  return ephemeralReply(`Created the **${name}** forum: ${link}`);
 }
 
 /**
@@ -808,6 +938,22 @@ export async function registerDiscordCommands(
         {
           name: 'prompt',
           description: 'What do you want to ask?',
+          type: 3, // STRING
+          required: true,
+        },
+      ],
+    },
+    {
+      name: 'create-app',
+      description: 'Create a forum channel for a new app (admin only)',
+      type: CommandType.CHAT_INPUT,
+      // "8" = ADMINISTRATOR. Hides the command from non-admins in the client;
+      // the handler re-checks server-side, so this is a UI hint, not the gate.
+      default_member_permissions: '8',
+      options: [
+        {
+          name: 'name',
+          description: 'App name (becomes the forum name, e.g. "Clink iOS")',
           type: 3, // STRING
           required: true,
         },

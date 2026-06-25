@@ -76,6 +76,7 @@ import { revokeAllSessions } from '../lib/auth.ts';
 import { issuePasswordReset } from '../lib/passwordreset.ts';
 import { decryptField } from '../lib/crypto.ts';
 import { sendPasswordResetEmail } from '../lib/email.ts';
+import { registerDiscordCommands } from '../services/discord-post.ts';
 import type { AppEnv } from '../types.ts';
 
 export const adminRoutes = new Hono<AppEnv>();
@@ -841,4 +842,30 @@ adminRoutes.get('/audit', requirePermission('audit.view'), async (c) => {
     createdAt: r.createdAt.toISOString(),
   }));
   return c.json<Page<AuditEntry>>({ data, nextCursor });
+});
+
+/**
+ * Re-register Thing Two's Discord slash commands using the Worker's own secrets.
+ *
+ * This is the server-side equivalent of scripts/register-discord-commands.ts,
+ * exposed so the command list can be refreshed without a bot token on the
+ * caller's machine: the token, app id, and guild id all come from the deployed
+ * env. Run it once after deploying a new or changed command. Idempotent (a bulk
+ * PUT), so re-running is safe. Guild-scoped when DISCORD_GUILD_ID is set, which
+ * makes the change appear instantly.
+ */
+adminRoutes.post('/discord/register-commands', requirePermission('groups.manage'), async (c) => {
+  const env = loadServerEnv();
+  if (!env.DISCORD_APP_ID || !env.DISCORD_BOT_TOKEN) {
+    throw errors.validation('Discord app id and bot token are not configured.');
+  }
+
+  await registerDiscordCommands(
+    env.DISCORD_APP_ID,
+    env.DISCORD_BOT_TOKEN,
+    env.DISCORD_GUILD_ID || undefined,
+  );
+
+  const scope = env.DISCORD_GUILD_ID ? 'guild' : 'global';
+  return c.json({ ok: true, scope });
 });

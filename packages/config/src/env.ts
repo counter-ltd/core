@@ -172,6 +172,14 @@ const serverEnvSchema = z.object({
   GITHUB_WEBHOOK_SECRET: z.string().optional().default(''),
   DISCORD_COMMIT_CHANNEL_ID: z.string().optional().default(''),
   GITHUB_COMMIT_ORGS: z.string().optional().default('anti-ltd,counter-ltd'),
+  // Build announcements: the off-device upload pipeline (ASCManager) POSTs
+  // /build/announce after a build lands in App Store Connect, and Five posts it
+  // like a commit. The secret is the shared bearer the uploader sends (the
+  // endpoint isn't GitHub-signed); the channel id is where build posts go (its
+  // own channel, falling back to the commit channel when unset). Without the
+  // secret the endpoint returns 501.
+  BUILD_ANNOUNCE_SECRET: z.string().optional().default(''),
+  DISCORD_BUILD_CHANNEL_ID: z.string().optional().default(''),
   // WebAuthn (passkey) relying-party config. The RP ID is the registrable
   // domain of the WEB origin the ceremony runs on (e.g. counter.ltd), NOT the
   // API subdomain, and the browser enforces that the page origin matches. The

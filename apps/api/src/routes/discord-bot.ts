@@ -24,6 +24,7 @@ import {
   handleShareCommand,
   handleInteractCommand,
   handleAskCommand,
+  handleCreateAppCommand,
   type DiscordInteraction,
 } from '../services/discord-post.ts';
 import type { AppEnv } from '../types.ts';
@@ -219,6 +220,14 @@ discordBotRoutes.post('/interactions', async (c) => {
         env,
         c.executionCtx.waitUntil.bind(c.executionCtx),
       );
+      return c.json(response);
+    }
+
+    if (name === 'create-app' && commandType === COMMAND_TYPE.CHAT_INPUT) {
+      const response = await handleCreateAppCommand(interaction, {
+        DISCORD_BOT_TOKEN: env.DISCORD_BOT_TOKEN,
+        DISCORD_GUILD_ID: env.DISCORD_GUILD_ID,
+      });
       return c.json(response);
     }
 

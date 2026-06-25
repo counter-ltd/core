@@ -9,8 +9,18 @@
    * groups. `data.stats` is null when the caller lacks `dashboard.view` (or the
    * fetch failed), in which case we show a short note instead of empty zeros.
    */
-  let { data } = $props();
+  import { enhance } from '$app/forms';
+  import type { Permission } from '@counter/config';
+
+  let { data, form } = $props();
   const s = $derived(data.stats);
+  // data.permissions is merged in from the admin layout gate. The Discord card
+  // is config-level, so it's only shown to groups.manage holders, matching the
+  // API permission on the endpoint behind it.
+  const canManage = $derived((data.permissions as Permission[]).includes('groups.manage'));
+  // Disable the button while the action is in flight so a double-click can't fire
+  // two registrations.
+  let registering = $state(false);
 </script>
 
 {#if !s}
@@ -38,6 +48,38 @@
       <span class="sub faint">{s.groups.total} groups</span>
     </div>
   </div>
+{/if}
+
+{#if canManage}
+  <section class="card discord">
+    <div class="discord-head">
+      <h2>Discord</h2>
+      <p class="faint">
+        Refresh Thing Two's slash commands (e.g. after adding <code>/create-app</code>).
+        Idempotent; safe to re-run.
+      </p>
+    </div>
+    <form
+      method="POST"
+      action="?/registerCommands"
+      use:enhance={() => {
+        registering = true;
+        return async ({ update }) => {
+          await update();
+          registering = false;
+        };
+      }}
+    >
+      <button type="submit" disabled={registering}>
+        {registering ? 'Registering…' : 'Re-register slash commands'}
+      </button>
+    </form>
+    {#if form?.registered}
+      <p class="ok">Registered ({form.scope}). Commands are live in Discord.</p>
+    {:else if form?.error}
+      <p class="err">{form.error}</p>
+    {/if}
+  </section>
 {/if}
 
 <style>
@@ -80,5 +122,49 @@
   .sub {
     font-size: 0.74rem;
     margin-top: var(--space-1);
+  }
+  .discord {
+    margin-top: var(--space-5);
+    padding: var(--space-4) var(--space-5) var(--space-5);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .discord-head h2 {
+    font-size: 1rem;
+    margin: 0 0 var(--space-1);
+  }
+  .discord-head p {
+    font-size: 0.8rem;
+    margin: 0;
+  }
+  .discord code {
+    font-family: var(--mono);
+    font-size: 0.78em;
+  }
+  .discord button {
+    align-self: flex-start;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-2, 6px);
+    background: transparent;
+    color: var(--color-accent);
+    cursor: pointer;
+  }
+  .discord button:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .ok {
+    font-size: 0.8rem;
+    color: var(--color-accent);
+    margin: 0;
+  }
+  .err {
+    font-size: 0.8rem;
+    color: var(--color-danger);
+    margin: 0;
   }
 </style>
